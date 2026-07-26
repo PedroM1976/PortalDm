@@ -418,6 +418,10 @@ let DATA=[], META={anos:[],vendedores:[],clientes:[],areas:[],grupos:[]}, curren
 const DEFAULT_EXCEL_BASENAME='Vendas_preenchido_062026';
 const DEFAULT_EXCEL_CANDIDATES=[
   DEFAULT_EXCEL_BASENAME+'.xlsx',
+  DEFAULT_EXCEL_BASENAME+'.XLSX',
+  './'+DEFAULT_EXCEL_BASENAME+'.xlsx',
+  'data/'+DEFAULT_EXCEL_BASENAME+'.xlsx',
+  'dados/'+DEFAULT_EXCEL_BASENAME+'.xlsx',
   ...Array.from({length:20},(_,i)=>DEFAULT_EXCEL_BASENAME+' ('+(i+1)+').xlsx'),
   'Vendas.xlsx','vendas.xlsx','Dados.xlsx','dados.xlsx'
 ];
@@ -904,35 +908,73 @@ async function parseFile(file){
  $('footer').innerHTML='&copy; Desenvolvido By Domingos &amp; Morgado';
  $('status').textContent=`Ficheiro carregado: ${file.name}. ${fileHandle?'Auto-refresh direto ativo.':'Pode usar “Atualizar agora” para reler o ficheiro selecionado.'}`;
 }
-async function loadDefaultExcel(){
+async function loadDefaultExcel(forceRetry=false){
+ if(DATA && DATA.length && !forceRetry) return true;
+
  const candidates=activeDefaultExcelFile
    ? [activeDefaultExcelFile,...DEFAULT_EXCEL_CANDIDATES.filter(name=>name!==activeDefaultExcelFile)]
    : DEFAULT_EXCEL_CANDIDATES;
+
  let lastError='ficheiro não encontrado';
- $('status').textContent='A procurar automaticamente o ficheiro Excel…';
+ const statusEl=$('status');
+ if(statusEl) statusEl.textContent='A procurar automaticamente '+DEFAULT_EXCEL_BASENAME+'.xlsx…';
+
  for(const filename of candidates){
    try{
-     const url=new URL(filename, window.location.href);
-     url.searchParams.set('_t',Date.now());
-     const response=await fetch(url.toString(),{cache:'no-store'});
-     if(!response.ok){ lastError='HTTP '+response.status+' ao obter '+filename; continue; }
+     // Usa sempre a pasta real do index.html, ignorando query strings e âncoras.
+     const baseUrl=new URL('.', window.location.href);
+     const url=new URL(filename.replace(/^\.\//,''), baseUrl);
+     url.searchParams.set('_dm',Date.now());
+
+     const response=await fetch(url.href,{
+       method:'GET',
+       cache:'no-store',
+       credentials:'same-origin'
+     });
+
+     if(!response.ok){
+       lastError='HTTP '+response.status+' em '+url.pathname;
+       continue;
+     }
+
      const blob=await response.blob();
-     if(!blob.size){ lastError='O ficheiro '+filename+' está vazio'; continue; }
-     currentFile=new File([blob],filename,{type:blob.type||'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',lastModified:Date.now()});
+     if(!blob.size){
+       lastError='O ficheiro '+filename+' está vazio';
+       continue;
+     }
+
+     currentFile=new File(
+       [blob],
+       filename.split('/').pop(),
+       {
+         type:blob.type||'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+         lastModified:Date.now()
+       }
+     );
+
      fileHandle=null;
      autoExcelSource=true;
      activeDefaultExcelFile=filename;
+
      await parseFile(currentFile);
-     $('status').textContent='Ficheiro carregado automaticamente: '+filename+'. Atualização automática ativa a cada 1 minuto.';
+
+     if(statusEl) statusEl.textContent=
+       'Ficheiro carregado automaticamente: '+currentFile.name+
+       '. Atualização automática ativa a cada 1 minuto.';
      startTimer();
-     return;
+     return true;
    }catch(e){
      lastError=e && e.message ? e.message : String(e);
    }
  }
+
  autoExcelSource=false;
  activeDefaultExcelFile='';
- $('status').textContent='Não foi encontrado um Excel automático. Foram testados '+DEFAULT_EXCEL_CANDIDATES.length+' nomes possíveis. Último erro: '+lastError+'. Pode escolher o ficheiro manualmente.';
+ if(statusEl) statusEl.textContent=
+   'Não foi possível carregar automaticamente '+DEFAULT_EXCEL_BASENAME+
+   '.xlsx. Último erro: '+lastError+
+   '. Confirme que o Excel está na mesma pasta do index.html no GitHub.';
+ return false;
 }
 async function reloadFile(){
  try{
@@ -948,8 +990,39 @@ $('pickHandle').addEventListener('click', async()=>{ autoExcelSource=false; if(!
 $('reloadBtn').addEventListener('click', reloadFile);
 $('pdfBtn').addEventListener('click', ()=>window.print());
 initTabs(); initSelects(); update();
-if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',()=>setTimeout(loadDefaultExcel,150));
-else setTimeout(loadDefaultExcel,150);
+
+let dmAutoLoadStarted=false;
+let dmAutoLoadAttempts=0;
+async function dmStartAutomaticExcelLoad(){
+  if(dmAutoLoadStarted || (DATA && DATA.length)) return;
+  dmAutoLoadStarted=true;
+  dmAutoLoadAttempts++;
+
+  let loaded=await loadDefaultExcel();
+  if(loaded) return;
+
+  // Repete algumas vezes para dar tempo ao GitHub Pages, à rede e à biblioteca XLSX.
+  if(dmAutoLoadAttempts>=4) return;
+  setTimeout(async()=>{
+    if(DATA && DATA.length) return;
+    dmAutoLoadStarted=false;
+    await dmStartAutomaticExcelLoad();
+  },2500);
+}
+
+if(document.readyState==='loading'){
+  document.addEventListener('DOMContentLoaded',()=>setTimeout(dmStartAutomaticExcelLoad,250),{once:true});
+}else{
+  setTimeout(dmStartAutomaticExcelLoad,250);
+}
+
+// Reforço para browsers que atrasam pedidos durante o arranque.
+window.addEventListener('load',()=>{
+  if(!(DATA && DATA.length)){
+    dmAutoLoadStarted=false;
+    setTimeout(dmStartAutomaticExcelLoad,500);
+  }
+},{once:true});
 </script>
 <script id="dmEnhanceScript">
 (function(){

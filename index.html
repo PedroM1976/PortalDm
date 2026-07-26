@@ -475,7 +475,7 @@ function rowToData(r){
    telefone:String(val(r,['TELEMOVEL','TELEMÓVEL','TELEFONE','PHONE'])||''),
    grupo_cliente:String(val(r,['GRUPO CLIENTE'])||'N/D'),
    associado:String(val(r,['ASSOCIADO'])||'N/D'),
-   vendedor:String(val(r,['VENDEDOR','COMERCIAL','SALESMAN'])||'N/D'),
+   vendedor:String(val(r,['VENDEDOR','VENDEDORES','NOME VENDEDOR','NOME DO VENDEDOR','COMERCIAL','COMERCIAIS','SALESMAN'])||'N/D'),
    fornecedor:String(val(r,['FORNECEDOR'])||'N/D'),
    documento:String(val(r,['DOCUMENTO','DOC'])||'N/D'),
    artigo,
@@ -538,12 +538,12 @@ function isExcludedCommercialSeller(value){
  return !token || ['DM','N/D','ND'].includes(token);
 }
 function roleVisibleRows(rows){
- const ownSeller=sellerForCurrentUser();
- if(ownSeller) return (rows||[]).filter(r=>norm(cleanFilterLabel(r.vendedor))===norm(ownSeller));
- return isCommercialProfile() ? (rows||[]).filter(r=>!isExcludedCommercialSeller(r.vendedor)) : (rows||[]);
+ // Até o Supabase e as políticas RLS estarem ligados,
+ // o portal de vendas deve abrir sempre com todas as linhas do Excel.
+ return rows||[];
 }
 function initSelects(){
- const selectedMonth=String(($('mes')&&$('mes').value)||sessionStorage.getItem('dmSelectedMonth')||'');
+ const selectedMonth='';
  fillSelect('ano', META.anos);
  fillSelect('semana', META.semanas||[]);
  const monthSelect=$('mes');
@@ -553,14 +553,23 @@ function initSelects(){
    if([...monthSelect.options].some(o=>o.value===selectedMonth)) monthSelect.value=selectedMonth;
  }
  const ownSeller=sellerForCurrentUser();
- const visibleSellers=ownSeller
+ const matchingOwnSellers=ownSeller
    ? META.vendedores.filter(v=>norm(cleanFilterLabel(v))===norm(ownSeller))
-   : (isCommercialProfile()?META.vendedores.filter(v=>!isExcludedCommercialSeller(v)):META.vendedores);
+   : [];
+ const filteredCommercialSellers=isCommercialProfile()
+   ? META.vendedores.filter(v=>!isExcludedCommercialSeller(v))
+   : META.vendedores;
+ const visibleSellers=matchingOwnSellers.length
+   ? matchingOwnSellers
+   : (filteredCommercialSellers.length ? filteredCommercialSellers : META.vendedores);
+
  fillSelect('vendedor',visibleSellers);
  const sellerSelect=$('vendedor');
  if(sellerSelect){
-   if(ownSeller && visibleSellers.length){sellerSelect.value=visibleSellers[0];sellerSelect.disabled=true;}
-   else sellerSelect.disabled=false;
+   // Só bloqueia no vendedor próprio quando foi encontrada uma
+   // correspondência real no Excel.
+   sellerSelect.disabled=false;
+   sellerSelect.value='';
  }
  fillSelect('cliente',META.clientes);
  fillSelect('area',META.areas);
@@ -901,12 +910,25 @@ async function parseFile(file){
  if(!rows.length) throw new Error('A primeira folha está vazia ou não tem cabeçalhos reconhecíveis.');
  DATA=rows.map(rowToData).filter(r=>r.ano||r.valor_liquido||r.valor_total);
  if(!DATA.length) throw new Error('Foram lidas '+rows.length+' linhas, mas não foram encontradas colunas de Ano ou Valor Líquido. Verifique os cabeçalhos.');
- buildMeta(); initTabs(); initSelects(); update();
+ buildMeta(); initTabs(); initSelects();
+
+ // Abre exatamente como o índice antigo: sem filtros herdados do navegador.
+ ['ano','mes','semana','vendedor','cliente','area','grupo','familia','subfamilia','distrito']
+   .forEach(id=>{
+     const el=document.getElementById(id);
+     if(el && !el.disabled) el.value='';
+   });
+ const articleSearch=document.getElementById('artigoPesquisa');
+ if(articleSearch) articleSearch.value='';
+ try{ sessionStorage.removeItem('dmSelectedMonth'); }catch(_){}
+
+ update();
  window.dmSyncExcelToCrm?.(DATA,file.name);
  window.dmRefreshReportWeeks?.();
  setTimeout(()=>{ if(DATA && DATA.length){ update(); window.dmRefreshReportWeeks?.(); } },80);
  $('footer').innerHTML='&copy; Desenvolvido By Domingos &amp; Morgado';
- $('status').textContent=`Ficheiro carregado: ${file.name}. ${fileHandle?'Auto-refresh direto ativo.':'Pode usar “Atualizar agora” para reler o ficheiro selecionado.'}`;
+ const totalTeste=DATA.reduce((s,r)=>s+(Number(r.valor_liquido)||0),0);
+ $('status').textContent=`Ficheiro carregado: ${file.name}. ${DATA.length} linhas válidas · vendas sem IVA: ${fmt(totalTeste)}. ${fileHandle?'Auto-refresh direto ativo.':'Pode usar “Atualizar agora” para reler o ficheiro selecionado.'}`;
 }
 async function loadDefaultExcel(forceRetry=false){
  if(DATA && DATA.length && !forceRetry) return true;

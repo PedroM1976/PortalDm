@@ -951,8 +951,13 @@ function parseCSVText(text){
  const headers=cells(lines[0]).map(x=>x.trim());
  return lines.slice(1).map(line=>{const values=cells(line); const obj={}; headers.forEach((h,i)=>obj[h]=values[i]??''); return obj;});
 }
-async function parseFile(file){
+async function parseFile(file,preserveFilters=false){
  if(!file) throw new Error('Nenhum ficheiro selecionado.');
+ const filterIds=['ano','mes','semana','vendedor','cliente','area','grupo','familia','subfamilia','distrito'];
+ const previousFilters=preserveFilters
+   ? Object.fromEntries(filterIds.map(id=>[id,document.getElementById(id)?.value||'']))
+   : {};
+ const previousArticle=preserveFilters ? (document.getElementById('artigoPesquisa')?.value||'') : '';
  const ext=(file.name.split('.').pop()||'').toLowerCase();
  $('status').textContent='A carregar '+file.name+'…';
  let rows=[];
@@ -972,15 +977,17 @@ async function parseFile(file){
  if(!DATA.length) throw new Error('Foram lidas '+rows.length+' linhas, mas não foram encontradas colunas de Ano ou Valor Líquido. Verifique os cabeçalhos.');
  buildMeta(); initTabs(); initSelects();
 
- // Abre exatamente como o índice antigo: sem filtros herdados do navegador.
- ['ano','mes','semana','vendedor','cliente','area','grupo','familia','subfamilia','distrito']
-   .forEach(id=>{
-     const el=document.getElementById(id);
-     if(el && !el.disabled) el.value='';
-   });
+ // Num carregamento inicial começa sem filtros; numa atualização conserva a seleção atual.
+ filterIds.forEach(id=>{
+   const el=document.getElementById(id);
+   if(!el || el.disabled) return;
+   const wanted=preserveFilters ? (previousFilters[id]||'') : '';
+   const exists=[...el.options].some(option=>option.value===wanted);
+   el.value=exists ? wanted : '';
+ });
  const articleSearch=document.getElementById('artigoPesquisa');
- if(articleSearch) articleSearch.value='';
- try{ sessionStorage.removeItem('dmSelectedMonth'); }catch(_){}
+ if(articleSearch) articleSearch.value=preserveFilters ? previousArticle : '';
+ if(!preserveFilters){ try{ sessionStorage.removeItem('dmSelectedMonth'); }catch(_){} }
 
  update();
  window.dmSyncExcelToCrm?.(DATA,file.name);
@@ -1038,7 +1045,7 @@ async function loadDefaultExcel(forceRetry=false){
      autoExcelSource=true;
      activeDefaultExcelFile=filename;
 
-     await parseFile(currentFile);
+     await parseFile(currentFile,forceRetry);
 
      if(statusEl) statusEl.textContent=
        'Ficheiro carregado automaticamente: '+currentFile.name+
@@ -1060,9 +1067,9 @@ async function loadDefaultExcel(forceRetry=false){
 }
 async function reloadFile(){
  try{
-   if(autoExcelSource){ await loadDefaultExcel(); }
-   else if(fileHandle){ currentFile=await fileHandle.getFile(); await parseFile(currentFile); }
-   else if(currentFile){ await parseFile(currentFile); }
+   if(autoExcelSource){ await loadDefaultExcel(true); }
+   else if(fileHandle){ currentFile=await fileHandle.getFile(); await parseFile(currentFile,true); }
+   else if(currentFile){ await parseFile(currentFile,true); }
    else { $('status').textContent='Selecione primeiro um ficheiro Excel.'; }
  }catch(e){ $('status').textContent='Erro ao carregar: '+e.message; }
 }

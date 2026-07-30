@@ -4665,5 +4665,73 @@ body.dm-clientes-no-scroll{overflow:hidden}
 })();
 </script>
 
+
+<script id="dmKpiFilterSyncFix">
+(function(){
+  'use strict';
+  const FILTER_IDS=new Set(['ano','mes','semana','vendedor','cliente','area','grupo','familia','subfamilia','distrito']);
+  let queued=false;
+
+  function normalized(value){
+    return String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase();
+  }
+
+  function robustFilteredRows(){
+    const rows=typeof roleVisibleRows==='function'?roleVisibleRows(Array.isArray(DATA)?DATA:[]):(Array.isArray(DATA)?DATA:[]);
+    const value=id=>document.getElementById(id)?.value??'';
+    const year=Number(value('ano'))||0;
+    const month=Number(value('mes'))||0;
+    const week=normalized(value('semana'));
+    const seller=normalized(value('vendedor'));
+    const client=normalized(value('cliente'));
+    const areaValue=normalized(value('area'));
+    const groupValue=normalized(value('grupo'));
+    const family=normalized(value('familia'));
+    const subfamily=normalized(value('subfamilia'));
+    const district=normalized(value('distrito'));
+    const query=normalized(document.getElementById('artigoPesquisa')?.value||'');
+
+    return rows.filter(r=>
+      (!year||Number(r.ano)===year)&&
+      (!month||Number(r.mes)===month)&&
+      (!week||normalized(r.semana)===week)&&
+      (!seller||normalized(r.vendedor)===seller)&&
+      (!client||normalized(r.cliente)===client)&&
+      (!areaValue||normalized(r.area)===areaValue)&&
+      (!groupValue||normalized(r.grupo)===groupValue)&&
+      (!family||normalized(r.familia)===family)&&
+      (!subfamily||normalized(r.subfamilia)===subfamily)&&
+      (!district||normalized(typeof normDistrictName==='function'?normDistrictName(r.distrito):r.distrito)===district)&&
+      (!query||normalized(r.search_blob||((r.artigo||'')+' '+(r.descricao||'')+' '+(r.artigo_desc||''))).includes(query))
+    );
+  }
+
+  function syncKpis(){
+    queued=false;
+    try{
+      const rows=robustFilteredRows();
+      if(typeof updateKpis==='function') updateKpis(rows);
+    }catch(err){
+      console.error('Falha ao atualizar KPIs pelos filtros:',err);
+    }
+  }
+
+  function scheduleKpiSync(){
+    if(queued)return;
+    queued=true;
+    queueMicrotask(syncKpis);
+  }
+
+  document.addEventListener('change',event=>{
+    if(event.target instanceof HTMLSelectElement && FILTER_IDS.has(event.target.id)) scheduleKpiSync();
+  },true);
+  document.addEventListener('input',event=>{
+    if(event.target?.id==='artigoPesquisa') scheduleKpiSync();
+  },true);
+
+  window.dmSyncFilteredKpis=syncKpis;
+})();
+</script>
+
 </body>
 </html>

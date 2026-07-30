@@ -1065,13 +1065,52 @@ async function loadDefaultExcel(forceRetry=false){
    '. Confirme que o Excel está na mesma pasta do index.html no GitHub.';
  return false;
 }
+const DASHBOARD_FILTER_IDS=['ano','mes','semana','vendedor','cliente','area','grupo','familia','subfamilia','distrito'];
+function captureDashboardFilters(){
+ const state={};
+ DASHBOARD_FILTER_IDS.forEach(id=>{
+   const el=document.getElementById(id);
+   if(!el) return;
+   state[id]={value:String(el.value||''),text:String(el.options?.[el.selectedIndex]?.textContent||'')};
+ });
+ const article=document.getElementById('artigoPesquisa');
+ state.artigoPesquisa=article?String(article.value||''):'';
+ return state;
+}
+function restoreDashboardFilters(state,refresh=true){
+ if(!state) return;
+ DASHBOARD_FILTER_IDS.forEach(id=>{
+   const el=document.getElementById(id), saved=state[id];
+   if(!el||!saved) return;
+   let option=[...el.options].find(o=>String(o.value)===saved.value);
+   if(!option && saved.text){
+     const wanted=norm(cleanFilterLabel(saved.text));
+     option=[...el.options].find(o=>norm(cleanFilterLabel(o.textContent))===wanted);
+   }
+   el.value=option?option.value:'';
+ });
+ const article=document.getElementById('artigoPesquisa');
+ if(article) article.value=state.artigoPesquisa||'';
+ if(refresh && typeof update==='function') update();
+}
 async function reloadFile(){
+ const savedFilters=captureDashboardFilters();
  try{
    if(autoExcelSource){ await loadDefaultExcel(true); }
    else if(fileHandle){ currentFile=await fileHandle.getFile(); await parseFile(currentFile,true); }
    else if(currentFile){ await parseFile(currentFile,true); }
-   else { $('status').textContent='Selecione primeiro um ficheiro Excel.'; }
- }catch(e){ $('status').textContent='Erro ao carregar: '+e.message; }
+   else { $('status').textContent='Selecione primeiro um ficheiro Excel.'; return; }
+
+   // Algumas extensões do portal recriam os selects após o parse. Restaura no fim
+   // do ciclo atual e novamente após os redesenhos atrasados.
+   restoreDashboardFilters(savedFilters,true);
+   requestAnimationFrame(()=>restoreDashboardFilters(savedFilters,true));
+   setTimeout(()=>restoreDashboardFilters(savedFilters,true),120);
+   setTimeout(()=>restoreDashboardFilters(savedFilters,true),400);
+ }catch(e){
+   restoreDashboardFilters(savedFilters,true);
+   $('status').textContent='Erro ao carregar: '+e.message;
+ }
 }
 function startTimer(){ if(timer) clearInterval(timer); timer=setInterval(reloadFile,60000); }
 $('excelFile').addEventListener('change', async e=>{ currentFile=e.target.files && e.target.files[0]; fileHandle=null; autoExcelSource=false; if(currentFile){ await reloadFile(); startTimer(); if(DATA.length) $('status').textContent += ' Para acompanhar alterações no disco, use “Escolher com auto-refresh” no Chrome ou Edge.'; } });

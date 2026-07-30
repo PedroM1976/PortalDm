@@ -4,6 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Portal DM</title>
+<script id="dmSupabaseAutoConfig">
+(function(){
+  const DM_SUPABASE_URL = 'https://lyihzeddgfbzmuqwrjya.supabase.co';
+  const DM_SUPABASE_KEY = 'sb_publishable_sBVSviRAaAi_l92aszt9xg_Q76yHSZC';
+  const config = { url: DM_SUPABASE_URL, key: DM_SUPABASE_KEY };
+  window.DM_SUPABASE_CONFIG = Object.freeze(config);
+  try {
+    localStorage.setItem('dmSupabaseConfig', JSON.stringify(config));
+  } catch (e) {
+    console.warn('Não foi possível guardar a configuração do Supabase neste navegador.', e);
+  }
+})();
+</script>
 <script>
 // Leitor Excel com CDN oficial prioritário, timeout e alternativas para GitHub Pages.
 window.__xlsxReady = (async function(){
@@ -1918,7 +1931,7 @@ h1{font-size:24px}
 (function(){
  const $=id=>document.getElementById(id), money=n=>new Intl.NumberFormat('pt-PT',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(Number(n)||0);
  function current(){return sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||''}
- function cfg(){try{return JSON.parse(localStorage.getItem('dmSupabaseConfig')||'{}')}catch(e){return {}}}
+ function cfg(){if(window.DM_SUPABASE_CONFIG)return window.DM_SUPABASE_CONFIG;try{return JSON.parse(localStorage.getItem('dmSupabaseConfig')||'{}')}catch(e){return {}}}
 
  function escHtml(v){return String(v??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]))}
  function openReady(){const rows=window.dmReadyOpportunities||[],body=$('dmReadyBody'),sum=$('dmReadySummary');sum.textContent=rows.length+' '+(rows.length===1?'oportunidade pronta':'oportunidades prontas')+' para faturação';body.innerHTML=rows.length?rows.map(o=>`<article class="dm-ready-item" data-id="${escHtml(o.id)}"><h3>${escHtml(o.title||'Oportunidade')}</h3><div class="dm-ready-client">${escHtml(o.client_name||'Cliente não indicado')}</div><div class="dm-ready-value">${money(o.value)}</div><div class="dm-ready-meta"><span>Comercial: ${escHtml(o.owner_name||o.owner_id||'—')}</span><span>Data: ${escHtml(String(o.expected_close||'—').slice(0,10))}</span><span>Artigo: ${escHtml(o.extra_fields?.product_name||o.extra_fields?.product_code||'Ver no CRM')}</span><span>Estado: Ganho para faturar</span></div></article>`).join(''):'<div class="dm-ready-empty">Não existem oportunidades neste estado.</div>';body.querySelectorAll('.dm-ready-item').forEach(el=>el.onclick=()=>{sessionStorage.setItem('dmOpenOpportunityId',el.dataset.id);window.open('https://pedrom1976.github.io/CRM/?opportunity='+encodeURIComponent(el.dataset.id),'_blank','noopener')});$('dmReadyBackdrop').classList.add('open');$('dmReadyDrawer').classList.add('open');$('dmReadyDrawer').setAttribute('aria-hidden','false')}

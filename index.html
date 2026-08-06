@@ -4297,10 +4297,11 @@ function rowWeekNumber(v){const s=String(v||'');const m=s.match(/(?:SEMANA|SEM|S
 function marginPct(rows){
   const net=rows.reduce((a,r)=>a+(Number(r.valor_liquido)||0),0);
   const margin=rows.reduce((a,r)=>a+(Number(r.margem)||0),0);
-  return net ? (margin/net)*100 : 0;
+  return net>0 ? (margin/net)*100 : null;
 }
 function pct(v){
-  return new Intl.NumberFormat('pt-PT',{minimumFractionDigits:1,maximumFractionDigits:2}).format(Number(v)||0)+'%';
+  if(v===null || v===undefined || !Number.isFinite(Number(v))) return 'ND';
+  return new Intl.NumberFormat('pt-PT',{minimumFractionDigits:1,maximumFractionDigits:2}).format(Number(v))+'%';
 }
 function periodBaseRows(){
   const base=typeof DATA!=='undefined'?DATA:[];

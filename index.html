@@ -332,6 +332,10 @@ body.dm-crm-no-scroll{overflow:hidden}
   <div class="card"><div class="kpi-label">Vendedores</div><div class="kpi-value" id="kpiVendedores">0</div><div class="kpi-note">Vendedores únicos</div></div>
   <div class="card"><div class="kpi-label">Quantidade</div><div class="kpi-value" id="kpiQtd">0</div><div class="kpi-note" id="kpiLinhas">0 linhas filtradas</div></div>
 </section>
+<section id="dmAiAnalysisPanel" class="dm-ai-analysis panel wide">
+  <div class="dm-ai-analysis-head"><div><div class="dm-ai-kicker">ANÁLISE IA LOCAL</div><h2 id="dmAiAnalysisTitle">Relatório automático do período</h2><div id="dmAiAnalysisScope" class="smallnote">A aguardar dados…</div></div><button id="dmAiRefresh" class="secondary" type="button">Atualizar análise</button></div>
+  <div id="dmAiAnalysisBody" class="dm-ai-analysis-body"><div class="empty">Carregue o ficheiro Excel para gerar a análise.</div></div>
+</section>
 <nav class="tabs" aria-label="Separadores do dashboard">
   <button class="tab-btn active" type="button" data-tab="tab-visao">Visão geral</button>
   <button class="tab-btn" type="button" data-tab="tab-crescimento">Crescimento</button>
@@ -1012,6 +1016,7 @@ async function parseFile(file,preserveFilters=false){
  }
  if(!rows.length) throw new Error('A primeira folha está vazia ou não tem cabeçalhos reconhecíveis.');
  DATA=rows.map(rowToData).filter(r=>r.ano||r.valor_liquido||r.valor_total);
+ window.DATA=DATA;
  if(!DATA.length) throw new Error('Foram lidas '+rows.length+' linhas, mas não foram encontradas colunas de Ano ou Valor Líquido. Verifique os cabeçalhos.');
  buildMeta(); initTabs(); initSelects();
 
@@ -1429,7 +1434,7 @@ if(window.DATA&&DATA.length){update()}else{renderDrill()}
           <div class="panel"><h2>Mapa de Portugal <span class="chart-title-note">· ligado à pesquisa</span></h2><div id="commercialPortugalMap" class="chart empty">Sem dados</div></div>
         </div>
         <div class="panel wide"><div class="commercial-drill-header"><h2>Drill-down comercial</h2><button id="commercialBack" class="secondary" type="button" disabled>← Voltar atrás</button></div><div id="commercialResultTable"></div></div>
-        <div class="panel wide"><h2>Calendário comercial mensal</h2>
+        <div class="panel wide" id="commercialLegacyCalendarPanel" style="display:none!important" aria-hidden="true"><h2>Calendário comercial mensal</h2>
           <div class="calendar-toolbar">
             <button id="calendarPrev" class="secondary" type="button">◀ Mês anterior</button>
             <div id="calendarMonthLabel" class="calendar-month-label"></div>
@@ -2544,6 +2549,22 @@ async function refresh(){
   function weeklyMoney(v){return new Intl.NumberFormat('pt-PT',{style:'currency',currency:'EUR',maximumFractionDigits:2}).format(v||0)}
   function weeklyEsc(v){return String(v??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]))}
   function weeklyTable(items,label){return items.length?`<table><thead><tr><th>${label}</th><th class="num">Vendas sem IVA</th></tr></thead><tbody>${items.slice(0,10).map(([n,v])=>`<tr><td>${weeklyEsc(n)}</td><td class="num">${weeklyMoney(v)}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">Sem dados nesta semana.</div>'}
+  function weeklyAIText(rows,info){
+    if(!rows.length)return '<div class="smallnote">Sem dados suficientes para gerar análise.</div>';
+    const net=rows.reduce((a,r)=>a+(+r.valor_liquido||0),0),margin=rows.reduce((a,r)=>a+(+r.margem||0),0),qty=rows.reduce((a,r)=>a+(+r.quantidade||0),0);
+    const prevInfo={year:info.year,week:info.week-1};if(prevInfo.week<1){prevInfo.year--;prevInfo.week=53}
+    const activeUser=currentUser||sessionStorage.getItem('dmCurrentUser')||'';
+    const prev=reportRowsFor(activeUser,prevInfo),prevNet=prev.reduce((a,r)=>a+(+r.valor_liquido||0),0);
+    const delta=prevNet?((net-prevNet)/Math.abs(prevNet))*100:null;
+    const topClient=weeklyGroup(rows,'cliente')[0],topArea=weeklyGroup(rows,'area')[0],topSeller=weeklyGroup(rows,'vendedor')[0];
+    const marginPct=net>0?margin/net*100:null;
+    const parts=[];
+    parts.push(`<p><b>Resumo:</b> a semana fechou com <b>${weeklyMoney(net)}</b> de vendas sem IVA, ${qty.toLocaleString('pt-PT')} unidades e ${new Set(rows.map(r=>r.cliente).filter(Boolean)).size} clientes.</p>`);
+    if(delta!==null)parts.push(`<p><b>Evolução:</b> face à semana anterior, as vendas ${delta>=0?'subiram':'desceram'} <b>${Math.abs(delta).toFixed(1).replace('.',',')}%</b> (${weeklyMoney(prevNet)} → ${weeklyMoney(net)}).</p>`);else parts.push('<p><b>Evolução:</b> não existe base suficiente na semana anterior para uma comparação fiável.</p>');
+    if(marginPct!==null)parts.push(`<p><b>Rentabilidade:</b> margem de ${weeklyMoney(margin)}, equivalente a <b>${marginPct.toFixed(1).replace('.',',')}%</b> das vendas líquidas.</p>`);
+    const leaders=[];if(topClient)leaders.push(`cliente <b>${weeklyEsc(topClient[0])}</b> (${weeklyMoney(topClient[1])})`);if(topArea)leaders.push(`área <b>${weeklyEsc(topArea[0])}</b> (${weeklyMoney(topArea[1])})`);if(topSeller)leaders.push(`vendedor <b>${weeklyEsc(topSeller[0])}</b> (${weeklyMoney(topSeller[1])})`);if(leaders.length)parts.push('<p><b>Destaques:</b> '+leaders.join('; ')+'.</p>');
+    return parts.join('');
+  }
   function showWeeklyReport(force=false,requestedUser=''){
     const activeUser=currentUser||sessionStorage.getItem('dmCurrentUser')||'';
     const user=(force&&activeUser==='assistencia'&&requestedUser)?requestedUser:activeUser;if(!weeklyEligibleUser(user)){if(force)alert('Este perfil não está incluído nos relatórios semanais.');return}
@@ -2553,7 +2574,7 @@ async function refresh(){
     const sem=rows.reduce((a,r)=>a+(+r.valor_liquido||0),0),iva=rows.reduce((a,r)=>a+(+r.iva||0),0),total=rows.reduce((a,r)=>a+(+r.valor_total||0),0),margem=rows.reduce((a,r)=>a+(+r.margem||0),0);
     const label=AUTH_USERS[user]?.label||user,period=info.monday.toLocaleDateString('pt-PT')+' a '+info.sunday.toLocaleDateString('pt-PT');
     let overlay=a$('weeklyReportOverlay');if(!overlay){overlay=document.createElement('div');overlay.id='weeklyReportOverlay';document.body.appendChild(overlay)}
-    overlay.innerHTML=`<article class="weekly-report-card"><div class="weekly-report-head"><div><h2>Relatório semanal — ${weeklyEsc(label)}</h2><div class="smallnote">Semana ${String(info.week).padStart(2,'0')} · ${period}</div></div>${getLogo()?`<img src="${getLogo()}" alt="Logo" style="width:130px;max-height:54px;object-fit:contain">`:''}</div><div class="weekly-report-kpis"><div class="weekly-report-kpi"><span>Vendas sem IVA</span><strong>${weeklyMoney(sem)}</strong></div><div class="weekly-report-kpi"><span>Vendas com IVA</span><strong>${weeklyMoney(total)}</strong></div><div class="weekly-report-kpi"><span>Margem</span><strong>${weeklyMoney(margem)}</strong></div><div class="weekly-report-kpi"><span>Clientes</span><strong>${new Set(rows.map(r=>r.cliente)).size}</strong></div></div><div class="weekly-report-grid"><section class="weekly-report-section"><h3>Top clientes</h3>${weeklyTable(weeklyGroup(rows,'cliente'),'Cliente')}</section><section class="weekly-report-section"><h3>Top artigos</h3>${weeklyTable(weeklyGroup(rows,'artigo_desc'),'Artigo')}</section><section class="weekly-report-section"><h3>Resumo</h3><table><tbody><tr><th>IVA</th><td class="num">${weeklyMoney(iva)}</td></tr><tr><th>Quantidade</th><td class="num">${rows.reduce((a,r)=>a+(+r.quantidade||0),0).toLocaleString('pt-PT')}</td></tr><tr><th>Artigos únicos</th><td class="num">${new Set(rows.map(r=>r.artigo)).size}</td></tr><tr><th>Linhas</th><td class="num">${rows.length}</td></tr></tbody></table></section><section class="weekly-report-section"><h3>Top áreas</h3>${weeklyTable(weeklyGroup(rows,'area'),'Área')}</section></div><div class="weekly-report-actions"><button id="weeklyReportPrint" type="button">Imprimir / Guardar PDF</button><button id="weeklyReportClose" class="accent" type="button">Fechar</button></div></article>`;
+    overlay.innerHTML=`<article class="weekly-report-card"><div class="weekly-report-head"><div><h2>Relatório semanal — ${weeklyEsc(label)}</h2><div class="smallnote">Semana ${String(info.week).padStart(2,'0')} · ${period}</div></div>${getLogo()?`<img src="${getLogo()}" alt="Logo" style="width:130px;max-height:54px;object-fit:contain">`:''}</div><div class="weekly-report-kpis"><div class="weekly-report-kpi"><span>Vendas sem IVA</span><strong>${weeklyMoney(sem)}</strong></div><div class="weekly-report-kpi"><span>Vendas com IVA</span><strong>${weeklyMoney(total)}</strong></div><div class="weekly-report-kpi"><span>Margem</span><strong>${weeklyMoney(margem)}</strong></div><div class="weekly-report-kpi"><span>Clientes</span><strong>${new Set(rows.map(r=>r.cliente)).size}</strong></div></div><section class="weekly-report-section dm-weekly-ai"><h3>🤖 Análise IA da semana</h3><div>${weeklyAIText(rows,info)}</div></section><div class="weekly-report-grid"><section class="weekly-report-section"><h3>Top clientes</h3>${weeklyTable(weeklyGroup(rows,'cliente'),'Cliente')}</section><section class="weekly-report-section"><h3>Top artigos</h3>${weeklyTable(weeklyGroup(rows,'artigo_desc'),'Artigo')}</section><section class="weekly-report-section"><h3>Resumo</h3><table><tbody><tr><th>IVA</th><td class="num">${weeklyMoney(iva)}</td></tr><tr><th>Quantidade</th><td class="num">${rows.reduce((a,r)=>a+(+r.quantidade||0),0).toLocaleString('pt-PT')}</td></tr><tr><th>Artigos únicos</th><td class="num">${new Set(rows.map(r=>r.artigo)).size}</td></tr><tr><th>Linhas</th><td class="num">${rows.length}</td></tr></tbody></table></section><section class="weekly-report-section"><h3>Top áreas</h3>${weeklyTable(weeklyGroup(rows,'area'),'Área')}</section></div><div class="weekly-report-actions"><button id="weeklyReportPrint" type="button">Imprimir / Guardar PDF</button><button id="weeklyReportClose" class="accent" type="button">Fechar</button></div></article>`;
     overlay.classList.remove('hidden');document.body.classList.add('auth-locked');if(!force)localStorage.setItem(seenKey,info.key);
     a$('weeklyReportPrint').onclick=()=>{document.body.classList.add('weekly-report-print');window.print();setTimeout(()=>document.body.classList.remove('weekly-report-print'),300)};
     a$('weeklyReportClose').onclick=()=>{overlay.classList.add('hidden');document.body.classList.remove('auth-locked')};
@@ -4876,5 +4897,269 @@ body.dm-clientes-no-scroll{overflow:hidden}
 })();
 </script>
 
+
+
+<style id="dmVisitCalendarStyles">
+#tab-visitas .visit-shell{display:grid;grid-template-columns:minmax(0,1fr);gap:18px}
+#tab-visitas .visit-topbar{display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;align-items:center}
+#tab-visitas .visit-month-label{font-size:22px;font-weight:900;text-align:center;text-transform:capitalize}
+#tab-visitas .visit-form{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:10px;align-items:end}
+#tab-visitas .visit-form .visit-wide{grid-column:span 2}
+#tab-visitas .visit-actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+#tab-visitas .visit-admin-filter{display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:10px;margin-top:12px}
+#tab-visitas .visit-calendar{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;margin-top:14px}
+#tab-visitas .visit-weekday{font-size:11px;text-transform:uppercase;color:var(--muted);font-weight:900;text-align:center;padding:8px}
+#tab-visitas .visit-day{min-height:150px;border:1px solid var(--line);border-radius:14px;background:#fff;padding:8px;overflow:hidden;cursor:pointer}
+#tab-visitas .visit-day.out{opacity:.38}
+#tab-visitas .visit-day.today{outline:2px solid #0657ff;outline-offset:1px}
+#tab-visitas .visit-day-head{display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:12px;font-weight:900;margin-bottom:6px}
+#tab-visitas .visit-event{border-left:5px solid #0657ff;background:#f8fbff;border-radius:9px;padding:7px 8px;margin:6px 0;font-size:11px;position:relative;cursor:pointer}
+#tab-visitas .visit-event:hover{box-shadow:0 6px 16px rgba(15,23,42,.12)}
+#tab-visitas .visit-event b{display:block;padding-right:25px}
+#tab-visitas .visit-event small{display:block;color:#64748b;margin-top:3px;line-height:1.35}
+#tab-visitas .visit-event.cancelled{background:#f8fafc;color:#64748b;border-left-color:#94a3b8;text-decoration:line-through;opacity:.86}
+#tab-visitas .visit-event .visit-cancel{position:absolute;right:4px;top:4px;padding:2px 6px;border-radius:6px;font-size:10px;background:#fee2e2;color:#991b1b}
+#tab-visitas .visit-sync{font-size:12px;color:var(--muted);font-weight:800}
+#tab-visitas .visit-error{color:#b91c1c;font-weight:800}
+.visit-drawer-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.32);z-index:190;opacity:0;pointer-events:none;transition:.2s}.visit-drawer-backdrop.open{opacity:1;pointer-events:auto}
+.visit-drawer{position:fixed;top:0;right:0;width:min(620px,96vw);height:100vh;background:#fff;z-index:200;box-shadow:-24px 0 50px rgba(15,23,42,.22);transform:translateX(105%);transition:.24s ease;display:flex;flex-direction:column}.visit-drawer.open{transform:translateX(0)}
+.visit-drawer-head{padding:22px 24px;background:linear-gradient(135deg,#081a3a,#0657ff);color:#fff;display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.visit-drawer-title{font-size:21px;font-weight:900}.visit-drawer-sub{font-size:12px;opacity:.88;margin-top:6px}.visit-drawer-body{padding:18px 22px 28px;overflow:auto}.visit-history-filters{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}.visit-history-card{border:1px solid var(--line);border-radius:13px;padding:12px;margin:9px 0;background:#fff}.visit-history-card.cancelled{background:#f8fafc;color:#64748b;text-decoration:line-through}.visit-history-card b{display:block}.visit-history-card small{display:block;margin-top:4px;color:#64748b}.visit-cancel-reason{margin-top:8px;padding:8px 10px;border-radius:9px;background:#fff1f2;border:1px solid #fecdd3;color:#9f1239;text-decoration:none!important;font-size:12px}.visit-empty{padding:34px 15px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:13px}
+@media(max-width:1050px){#tab-visitas .visit-form{grid-template-columns:1fr 1fr}#tab-visitas .visit-calendar{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){#tab-visitas .visit-topbar,#tab-visitas .visit-form,#tab-visitas .visit-admin-filter,#tab-visitas .visit-calendar{grid-template-columns:1fr}#tab-visitas .visit-form .visit-wide{grid-column:auto}#tab-visitas .visit-month-label{order:-1}#tab-visitas .visit-day{min-height:95px}.visit-history-filters{grid-template-columns:1fr}}
+</style>
+
+<script id="dmVisitCalendarScript">
+(function(){
+ 'use strict';
+ const SUPABASE_URL='https://lyihzeddgfbzmuqwrjya.supabase.co';
+ const SUPABASE_KEY='sb_publishable_sBVSviRAaAi_l92aszt9xg_Q76yHSZC';
+ const TABLE='visitas';
+ const USERS={
+   administrador:'Administrador',assistencia:'Assistência',comercial:'Comercial',
+   rui_ferreira:'Rui Ferreira',joao_rebelo:'João Rebelo',sandro_loureiro:'Sandro Loureiro'
+ };
+ const state={month:new Date(new Date().getFullYear(),new Date().getMonth(),1),rows:[],loading:false,lastSync:null,selectedClient:''};
+ const $=id=>document.getElementById(id);
+ const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ const currentUser=()=>sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||'';
+ const privileged=()=>['administrador','assistencia'].includes(currentUser());
+ const namedSeller=()=>['rui_ferreira','joao_rebelo','sandro_loureiro'].includes(currentUser());
+ const userLabel=u=>USERS[u]||u||'Utilizador';
+ const apiHeaders=(extra={})=>Object.assign({'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json'},extra);
+ const isoDate=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+ const clean=v=>String(v??'').trim();
+ function status(msg,error=false){const el=$('visitSyncStatus');if(!el)return;el.textContent=msg;el.classList.toggle('visit-error',!!error)}
+ function ensureUI(){
+   if($('tab-visitas')) return;
+   const tabs=document.querySelector('.tabs'),main=document.querySelector('main'); if(!tabs||!main)return;
+   const btn=document.createElement('button');btn.className='tab-btn';btn.type='button';btn.dataset.tab='tab-visitas';btn.textContent='Calendário de Visitas';tabs.appendChild(btn);
+   const section=document.createElement('section');section.id='tab-visitas';section.className='tab-panel';section.innerHTML=`
+    <div class="visit-shell">
+     <div class="panel wide" id="visitFormPanel">
+      <h2>Nova visita</h2>
+      <div class="visit-form">
+       <div class="filter" id="visitUserWrap"><label>Utilizador</label><select id="visitUser"></select></div>
+       <div class="filter visit-wide"><label>Cliente</label><input id="visitClient" list="visitClientList" type="text" placeholder="Escolha um cliente ou escreva outro"><datalist id="visitClientList"></datalist></div>
+       <div class="filter"><label>Data</label><input id="visitDate" type="date"></div>
+       <div class="filter"><label>Hora</label><input id="visitTime" type="time"></div>
+       <div class="filter"><label>Tipo de visita</label><select id="visitType"><option>Visita comercial</option><option>Prospeção</option><option>Seguimento</option><option>Demonstração</option><option>Assistência</option><option>Outro</option></select></div>
+       <div class="filter visit-wide"><label>Observações</label><input id="visitNotes" type="text" placeholder="Notas da visita"></div>
+       <button id="visitAdd" class="accent" type="button">Guardar visita</button>
+      </div>
+     </div>
+     <div class="panel wide">
+      <div class="visit-topbar">
+       <button id="visitPrev" class="secondary" type="button">◀ Mês anterior</button>
+       <div id="visitMonthLabel" class="visit-month-label"></div>
+       <button id="visitNext" class="secondary" type="button">Mês seguinte ▶</button>
+       <button id="visitToday" class="secondary" type="button">Hoje</button>
+      </div>
+      <div class="visit-admin-filter" id="visitAdminFilters">
+       <div class="filter"><label>Ver agenda de</label><select id="visitFilterUser"><option value="">Todos os utilizadores</option></select></div>
+       <div class="filter"><label>Filtrar cliente</label><input id="visitFilterClient" type="search" placeholder="Nome do cliente"></div>
+       <div class="filter"><label>Estado</label><select id="visitFilterStatus"><option value="">Todos</option><option value="ativa">Ativas</option><option value="anulada">Anuladas</option></select></div>
+      </div>
+      <div id="visitCalendar" class="visit-calendar"></div>
+      <div class="visit-actions" style="margin-top:12px"><span id="visitSyncStatus" class="visit-sync"></span><button id="visitRefresh" class="secondary" type="button">Atualizar agenda</button></div>
+     </div>
+    </div>`;
+   const footer=main.querySelector('.footer');footer?main.insertBefore(section,footer):main.appendChild(section);
+   const backdrop=document.createElement('div');backdrop.id='visitDrawerBackdrop';backdrop.className='visit-drawer-backdrop';document.body.appendChild(backdrop);
+   const drawer=document.createElement('aside');drawer.id='visitDrawer';drawer.className='visit-drawer';drawer.innerHTML=`<div class="visit-drawer-head"><div><div id="visitDrawerTitle" class="visit-drawer-title">Histórico do cliente</div><div id="visitDrawerSub" class="visit-drawer-sub"></div></div><button id="visitDrawerClose" class="drawer-close" type="button">Fechar</button></div><div id="visitDrawerBody" class="visit-drawer-body"></div>`;document.body.appendChild(drawer);
+   bind(); syncRoleUI(); populateClients();
+ }
+ function bind(){
+   $('visitPrev').onclick=()=>{state.month=new Date(state.month.getFullYear(),state.month.getMonth()-1,1);render()};
+   $('visitNext').onclick=()=>{state.month=new Date(state.month.getFullYear(),state.month.getMonth()+1,1);render()};
+   $('visitToday').onclick=()=>{const n=new Date();state.month=new Date(n.getFullYear(),n.getMonth(),1);render()};
+   $('visitRefresh').onclick=()=>loadRows(true);
+   $('visitAdd').onclick=addVisit;
+   ['visitFilterUser','visitFilterStatus'].forEach(id=>$(id)?.addEventListener('change',render));
+   $('visitFilterClient')?.addEventListener('input',render);
+   $('visitDrawerClose').onclick=closeDrawer;$('visitDrawerBackdrop').onclick=closeDrawer;
+   $('visitCalendar').addEventListener('click',e=>{
+     const cancel=e.target.closest('[data-visit-cancel]');if(cancel){e.stopPropagation();cancelVisit(cancel.dataset.visitCancel);return}
+     const ev=e.target.closest('[data-visit-id]');if(ev){const row=state.rows.find(x=>String(x.id)===String(ev.dataset.visitId));if(row)openClient(row.cliente);return}
+     const day=e.target.closest('[data-visit-date]');if(day)$('visitDate').value=day.dataset.visitDate;
+   });
+   document.querySelector('.tab-btn[data-tab="tab-visitas"]')?.addEventListener('click',()=>{syncRoleUI();populateClients();loadRows()});
+ }
+ function syncRoleUI(){
+   if(!$('tab-visitas'))return;
+   const u=currentUser(),isPriv=privileged();
+   $('visitAdminFilters').style.display=isPriv?'grid':'none';
+   $('visitUserWrap').style.display=isPriv?'block':'none';
+   const sel=$('visitUser');if(sel){const old=sel.value;sel.innerHTML=Object.entries(USERS).map(([id,label])=>`<option value="${esc(id)}">${esc(label)}</option>`).join('');sel.value=isPriv&&(old&&USERS[old])?old:u;}
+   const filter=$('visitFilterUser');if(filter){const old=filter.value;filter.innerHTML='<option value="">Todos os utilizadores</option>'+Object.entries(USERS).map(([id,label])=>`<option value="${esc(id)}">${esc(label)}</option>`).join('');if([...filter.options].some(o=>o.value===old))filter.value=old;}
+   if(!isPriv && sel) sel.value=u;
+ }
+ function existingClients(){
+   const rows=(typeof DATA!=='undefined'&&Array.isArray(DATA))?DATA:(Array.isArray(window.DATA)?window.DATA:[]);const map=new Map();
+   rows.forEach(r=>{const name=clean(r?.cliente);if(!name)return;const key=name.toLocaleUpperCase('pt-PT');if(!map.has(key))map.set(key,name)});
+   return [...map.values()].sort((a,b)=>a.localeCompare(b,'pt',{sensitivity:'base'}));
+ }
+ function populateClients(){const dl=$('visitClientList');if(dl)dl.innerHTML=existingClients().map(x=>`<option value="${esc(x)}"></option>`).join('')}
+ async function loadRows(force=false){
+   if(state.loading)return;state.loading=true;status('A sincronizar com Supabase…');
+   try{
+     syncRoleUI();populateClients();
+     let q='select=*&order=data_visita.asc,hora_visita.asc';
+     if(namedSeller()||!privileged()) q+='&utilizador=eq.'+encodeURIComponent(currentUser())+'&anulada=eq.false';
+     const res=await fetch(`${SUPABASE_URL}/rest/v1/${TABLE}?${q}`,{headers:apiHeaders()});
+     if(!res.ok) throw new Error(await readableError(res));
+     state.rows=await res.json();state.lastSync=new Date();
+     status('Sincronizado: '+state.lastSync.toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit'}));render();
+   }catch(err){console.error(err);status('Não foi possível aceder ao Supabase: '+err.message,true);render()}
+   finally{state.loading=false}
+ }
+ async function readableError(res){try{const j=await res.json();return j.message||j.details||('Erro '+res.status)}catch(_){return 'Erro '+res.status}}
+ function visibleRows(){
+   let rows=state.rows.slice();
+   if(namedSeller()||!privileged()) return rows.filter(r=>r.utilizador===currentUser()&&!r.anulada);
+   const fu=$('visitFilterUser')?.value||'',fc=clean($('visitFilterClient')?.value||'').toLocaleUpperCase('pt-PT'),fs=$('visitFilterStatus')?.value||'';
+   if(fu)rows=rows.filter(r=>r.utilizador===fu);if(fc)rows=rows.filter(r=>clean(r.cliente).toLocaleUpperCase('pt-PT').includes(fc));
+   if(fs==='ativa')rows=rows.filter(r=>!r.anulada);if(fs==='anulada')rows=rows.filter(r=>!!r.anulada);
+   return rows;
+ }
+ function render(){
+   if(!$('visitCalendar'))return;syncRoleUI();populateClients();
+   const d=state.month,year=d.getFullYear(),month=d.getMonth();$('visitMonthLabel').textContent=d.toLocaleDateString('pt-PT',{month:'long',year:'numeric'});
+   const first=new Date(year,month,1),start=(first.getDay()+6)%7,days=new Date(year,month+1,0).getDate(),prevDays=new Date(year,month,0).getDate(),today=isoDate(new Date()),rows=visibleRows();
+   let html=['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'].map(x=>`<div class="visit-weekday">${x}</div>`).join('');
+   for(let i=0;i<42;i++){
+     let day,cd,out=false;if(i<start){day=prevDays-start+i+1;cd=new Date(year,month-1,day);out=true}else if(i>=start+days){day=i-start-days+1;cd=new Date(year,month+1,day);out=true}else{day=i-start+1;cd=new Date(year,month,day)}
+     const iso=isoDate(cd),items=rows.filter(r=>r.data_visita===iso).sort((a,b)=>String(a.hora_visita||'').localeCompare(String(b.hora_visita||'')));
+     html+=`<div class="visit-day ${out?'out':''} ${iso===today?'today':''}" data-visit-date="${iso}"><div class="visit-day-head"><span>${day}</span><span>${items.length?items.length+' visita'+(items.length===1?'':'s'):''}</span></div>${items.map(eventHtml).join('')}</div>`;
+   }
+   $('visitCalendar').innerHTML=html;
+ }
+ function eventHtml(r){
+   const canCancel=!r.anulada && (privileged()||r.utilizador===currentUser());
+   const time=String(r.hora_visita||'').slice(0,5),cancelled=!!r.anulada;
+   return `<div class="visit-event ${cancelled?'cancelled':''}" data-visit-id="${esc(r.id)}">${canCancel?`<button class="visit-cancel" data-visit-cancel="${esc(r.id)}" type="button" title="Anular visita">×</button>`:''}<b>${esc(time||'--:--')} · ${esc(r.cliente||'Sem cliente')}</b><small>${esc(userLabel(r.utilizador))} · ${esc(r.tipo_visita||'Visita comercial')}</small>${cancelled?`<small>Anulada${r.motivo_anulacao?' · clique para ver motivo':''}</small>`:(r.observacoes?`<small>${esc(r.observacoes)}</small>`:'')}</div>`;
+ }
+ async function addVisit(){
+   const u=privileged()?($('visitUser')?.value||currentUser()):currentUser(),client=clean($('visitClient')?.value),date=$('visitDate')?.value||'',time=$('visitTime')?.value||'',type=$('visitType')?.value||'Visita comercial',notes=clean($('visitNotes')?.value);
+   if(!u||!client||!date||!time){alert('Preencha cliente, data e hora.');return}
+   const clients=existingClients(),matched=clients.find(x=>x.localeCompare(client,'pt',{sensitivity:'base'})===0)||null;
+   const payload={utilizador:u,utilizador_nome:userLabel(u),cliente:client,cliente_original:matched,data_visita:date,hora_visita:time,tipo_visita:type,estado:'ativa',observacoes:notes||null,anulada:false,atualizado_em:new Date().toISOString()};
+   status('A guardar visita…');$('visitAdd').disabled=true;
+   try{
+     const res=await fetch(`${SUPABASE_URL}/rest/v1/${TABLE}`,{method:'POST',headers:apiHeaders({'Prefer':'return=representation'}),body:JSON.stringify(payload)});if(!res.ok)throw new Error(await readableError(res));
+     $('visitClient').value='';$('visitNotes').value='';state.month=new Date(Number(date.slice(0,4)),Number(date.slice(5,7))-1,1);await loadRows(true);
+   }catch(err){status('Erro ao guardar: '+err.message,true);alert('Não foi possível guardar a visita no Supabase.\n\n'+err.message)}finally{$('visitAdd').disabled=false}
+ }
+ async function cancelVisit(id){
+   const row=state.rows.find(x=>String(x.id)===String(id));if(!row||row.anulada)return;
+   const reason=prompt('Motivo da anulação desta visita:');if(reason===null)return;if(!clean(reason)){alert('O motivo da anulação é obrigatório.');return}
+   const payload={anulada:true,estado:'anulada',motivo_anulacao:clean(reason),anulada_por:userLabel(currentUser()),anulada_em:new Date().toISOString(),atualizado_em:new Date().toISOString()};
+   try{
+     status('A anular visita…');const res=await fetch(`${SUPABASE_URL}/rest/v1/${TABLE}?id=eq.${encodeURIComponent(id)}`,{method:'PATCH',headers:apiHeaders({'Prefer':'return=representation'}),body:JSON.stringify(payload)});if(!res.ok)throw new Error(await readableError(res));await loadRows(true);
+   }catch(err){status('Erro ao anular: '+err.message,true);alert('Não foi possível anular a visita.\n\n'+err.message)}
+ }
+ function openClient(client){state.selectedClient=client;$('visitDrawerTitle').textContent=client||'Cliente';$('visitDrawerSub').textContent='Histórico de visitas';renderClientHistory();$('visitDrawerBackdrop').classList.add('open');$('visitDrawer').classList.add('open')}
+ function closeDrawer(){$('visitDrawerBackdrop')?.classList.remove('open');$('visitDrawer')?.classList.remove('open')}
+ function renderClientHistory(){
+   const client=state.selectedClient;if(!client)return;let rows=state.rows.filter(r=>clean(r.cliente).localeCompare(clean(client),'pt',{sensitivity:'base'})===0);
+   if(!privileged())rows=rows.filter(r=>r.utilizador===currentUser()&&!r.anulada);
+   const months=[...new Set(rows.map(r=>String(r.data_visita||'').slice(0,7)).filter(Boolean))].sort().reverse();
+   const root=$('visitDrawerBody');root.innerHTML=`<div class="visit-history-filters"><div class="filter"><label>Mês</label><select id="visitHistoryMonth"><option value="">Todos</option>${months.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join('')}</select></div><div class="filter"><label>Dia</label><input id="visitHistoryDay" type="date"></div></div><div id="visitHistoryList"></div>`;
+   const draw=()=>{let a=rows.slice(),m=$('visitHistoryMonth')?.value||'',day=$('visitHistoryDay')?.value||'';if(m)a=a.filter(r=>String(r.data_visita).startsWith(m));if(day)a=a.filter(r=>r.data_visita===day);a.sort((x,y)=>String(y.data_visita+y.hora_visita).localeCompare(String(x.data_visita+x.hora_visita)));$('visitHistoryList').innerHTML=a.length?a.map(historyHtml).join(''):'<div class="visit-empty">Sem visitas neste período.</div>'};
+   $('visitHistoryMonth').onchange=draw;$('visitHistoryDay').onchange=draw;draw();
+ }
+ function historyHtml(r){const cancelled=!!r.anulada,time=String(r.hora_visita||'').slice(0,5),date=r.data_visita?new Date(r.data_visita+'T12:00:00').toLocaleDateString('pt-PT'):'';return `<div class="visit-history-card ${cancelled?'cancelled':''}"><b>${esc(date)} · ${esc(time)} · ${esc(r.tipo_visita||'Visita')}</b><small>${esc(userLabel(r.utilizador))}${r.observacoes?' · '+esc(r.observacoes):''}</small>${cancelled?`<div class="visit-cancel-reason"><b>Motivo da anulação:</b> ${esc(r.motivo_anulacao||'Não indicado')}<br><small>Por ${esc(r.anulada_por||'N/D')}${r.anulada_em?' · '+esc(new Date(r.anulada_em).toLocaleString('pt-PT')):''}</small></div>`:''}</div>`}
+ function boot(){ensureUI();syncRoleUI();populateClients();const n=new Date();if($('visitDate')&&!$('visitDate').value)$('visitDate').value=isoDate(n);if($('visitTime')&&!$('visitTime').value)$('visitTime').value=`${String(n.getHours()).padStart(2,'0')}:${String(Math.ceil(n.getMinutes()/5)*5%60).padStart(2,'0')}`;loadRows();setInterval(()=>{if(!document.hidden&&currentUser())loadRows()},60000);window.addEventListener('focus',()=>{if(currentUser())loadRows()});document.addEventListener('visibilitychange',()=>{if(!document.hidden&&currentUser())loadRows()});}
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(boot,120));else setTimeout(boot,120);
+ const oldUpdate=window.update;if(typeof oldUpdate==='function')window.update=function(){const out=oldUpdate.apply(this,arguments);setTimeout(populateClients,20);return out};
+})();
+</script>
+
+
+<style id="dmAiAnalysisStyles">
+.dm-ai-analysis{margin:0 0 18px;padding:20px 22px;background:linear-gradient(135deg,#ffffff 0%,#f8fbff 100%)}
+.dm-ai-analysis-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px}.dm-ai-analysis-head h2{margin:3px 0 4px}.dm-ai-kicker{font-size:10px;letter-spacing:.13em;font-weight:900;color:var(--accent)}
+.dm-ai-analysis-body{display:grid;gap:10px;line-height:1.6;color:#334155}.dm-ai-analysis-body p{margin:0;padding:11px 13px;border:1px solid var(--line);border-radius:12px;background:#fff}.dm-ai-analysis-body b{color:#0b1533}.dm-ai-signal{display:inline-block;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:900;margin-left:6px}.dm-ai-up{background:#dcfce7;color:#166534}.dm-ai-down{background:#fee2e2;color:#991b1b}.dm-ai-flat{background:#e5e7eb;color:#374151}
+.dm-weekly-ai{grid-column:1/-1;margin:0 0 18px;background:linear-gradient(135deg,#f8fbff,#fff)}.dm-weekly-ai p{margin:7px 0;line-height:1.55}
+@media(max-width:700px){.dm-ai-analysis-head{flex-direction:column}.dm-ai-analysis-head button{width:100%}}
+</style>
+<script id="dmAiAnalysisScript">
+(function(){
+'use strict';
+const A=id=>document.getElementById(id);
+const money=v=>new Intl.NumberFormat('pt-PT',{style:'currency',currency:'EUR',maximumFractionDigits:2}).format(Number(v)||0);
+const clean=v=>String(v??'').trim();
+const weekNo=v=>{const m=String(v||'').match(/(\d{1,2})(?!\d)/);return m?Number(m[1]):0};
+const pct=v=>Number.isFinite(v)?Math.abs(v).toFixed(1).replace('.',',')+'%':'—';
+function safeRows(){try{const all=(typeof DATA!=='undefined'&&Array.isArray(DATA))?DATA:(Array.isArray(window.DATA)?window.DATA:[]);return typeof roleVisibleRows==='function'?roleVisibleRows(all):all}catch(_){return []}}
+function groupSum(rows,key){const m=new Map();rows.forEach(r=>{const k=clean(r[key])||'N/D';m.set(k,(m.get(k)||0)+(+r.valor_liquido||0))});return [...m.entries()].sort((a,b)=>b[1]-a[1])}
+function sum(rows,key){return rows.reduce((a,r)=>a+(+r[key]||0),0)}
+function selectedContext(){
+ const y=Number(A('ano')?.value||0),m=Number(A('mes')?.value||0),w=weekNo(A('semana')?.value||'');
+ const now=new Date();return {year:y||now.getFullYear(),month:m,week:w};
+}
+function periodRows(ctx){
+ let rows=safeRows().filter(r=>Number(r.ano)===ctx.year);
+ if(ctx.month)rows=rows.filter(r=>Number(r.mes)===ctx.month);
+ if(ctx.week){
+   if(ctx.month)rows=rows.filter(r=>weekNo(r.semana)<=ctx.week);
+   else rows=rows.filter(r=>weekNo(r.semana)===ctx.week);
+ }
+ return rows;
+}
+function previousComparable(ctx,rows){
+ if(ctx.week&&!ctx.month){let py=ctx.year,pw=ctx.week-1;if(pw<1){py--;pw=53}return safeRows().filter(r=>Number(r.ano)===py&&weekNo(r.semana)===pw)}
+ if(ctx.month){
+   let py=ctx.year,pm=ctx.month-1;if(pm<1){pm=12;py--}
+   let prev=safeRows().filter(r=>Number(r.ano)===py&&Number(r.mes)===pm);
+   if(ctx.week){const weeks=[...new Set(rows.map(r=>weekNo(r.semana)).filter(Boolean))].sort((a,b)=>a-b);const count=weeks.length;const pweeks=[...new Set(prev.map(r=>weekNo(r.semana)).filter(Boolean))].sort((a,b)=>a-b).slice(0,count);prev=prev.filter(r=>pweeks.includes(weekNo(r.semana)))}
+   return prev;
+ }
+ return [];
+}
+function render(){
+ const root=A('dmAiAnalysisBody');if(!root)return;const ctx=selectedContext(),rows=periodRows(ctx),prev=previousComparable(ctx,rows);
+ if(!rows.length){A('dmAiAnalysisTitle').textContent='Relatório automático do período';A('dmAiAnalysisScope').textContent='Sem dados no período selecionado.';root.innerHTML='<div class="empty">Sem dados suficientes para gerar análise.</div>';return}
+ const net=sum(rows,'valor_liquido'),margin=sum(rows,'margem'),qty=sum(rows,'quantidade'),clients=new Set(rows.map(r=>clean(r.cliente)).filter(Boolean)).size;
+ const prevNet=sum(prev,'valor_liquido'),delta=prevNet?((net-prevNet)/Math.abs(prevNet))*100:null,marginPct=net>0?margin/net*100:null;
+ const tc=groupSum(rows,'cliente')[0],ts=groupSum(rows,'vendedor')[0],ta=groupSum(rows,'area')[0];
+ const title=ctx.week&&!ctx.month?`Análise da semana ${String(ctx.week).padStart(2,'0')}`:(ctx.month?`Análise do mês${ctx.week?' até à semana '+String(ctx.week).padStart(2,'0'):''}`:'Análise do período selecionado');
+ A('dmAiAnalysisTitle').textContent=title;
+ A('dmAiAnalysisScope').textContent=(ctx.month?`${MONTHS?.[ctx.month]||ctx.month} ${ctx.year}`:`${ctx.year}`)+(ctx.week?` · acumulado considerado até S${String(ctx.week).padStart(2,'0')}`:'');
+ const signal=delta===null?'':`<span class="dm-ai-signal ${delta>1?'dm-ai-up':delta<-1?'dm-ai-down':'dm-ai-flat'}">${delta>=0?'+':''}${delta.toFixed(1).replace('.',',')}%</span>`;
+ const texts=[];
+ texts.push(`<p><b>Resumo:</b> ${money(net)} de vendas sem IVA, ${qty.toLocaleString('pt-PT')} unidades, ${clients} clientes e ${rows.length.toLocaleString('pt-PT')} linhas. ${signal}</p>`);
+ if(delta!==null)texts.push(`<p><b>Evolução:</b> o período está ${delta>=0?'acima':'abaixo'} do período comparável anterior em <b>${pct(delta)}</b> (${money(prevNet)} → ${money(net)}). ${Math.abs(delta)>=15?'É uma variação relevante que merece acompanhamento.':Math.abs(delta)>=5?'A variação é moderada.':'O desempenho está relativamente estável.'}</p>`);else texts.push('<p><b>Evolução:</b> não existe um período anterior comparável suficiente para calcular uma tendência fiável.</p>');
+ if(marginPct!==null)texts.push(`<p><b>Margem:</b> ${money(margin)}, equivalente a <b>${marginPct.toFixed(1).replace('.',',')}%</b> das vendas líquidas.${marginPct<15?' A margem está baixa e convém rever o mix de vendas e descontos.':marginPct>=30?' A margem apresenta um nível forte neste período.':''}</p>`);
+ const leaders=[];if(tc)leaders.push(`cliente <b>${tc[0]}</b> (${money(tc[1])})`);if(ts)leaders.push(`vendedor <b>${ts[0]}</b> (${money(ts[1])})`);if(ta)leaders.push(`área <b>${ta[0]}</b> (${money(ta[1])})`);if(leaders.length)texts.push('<p><b>Destaques:</b> '+leaders.join('; ')+'.</p>');
+ if(tc&&net>0){const concentration=tc[1]/net*100;if(concentration>=35)texts.push(`<p><b>Atenção:</b> o principal cliente representa <b>${concentration.toFixed(1).replace('.',',')}%</b> das vendas do período, indicando concentração elevada.</p>`)}
+ if(ctx.month&&ctx.week)texts.push(`<p><b>Leitura do mês:</b> este relatório é cumulativo até à semana <b>S${String(ctx.week).padStart(2,'0')}</b>. Ao selecionar a semana seguinte, a análise mensal é recalculada automaticamente com o novo acumulado.</p>`);
+ root.innerHTML=texts.join('');
+}
+function bind(){A('dmAiRefresh')?.addEventListener('click',render);['ano','mes','semana','vendedor','cliente','area','grupo','familia','subfamilia','distrito'].forEach(id=>A(id)?.addEventListener('change',()=>setTimeout(render,0)));A('artigoPesquisa')?.addEventListener('input',()=>setTimeout(render,80));setTimeout(render,250)}
+const oldUpdate=window.update;if(typeof oldUpdate==='function')window.update=function(){const out=oldUpdate.apply(this,arguments);setTimeout(render,0);return out};
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
+window.dmRefreshAiAnalysis=render;
+})();
+</script>
 </body>
 </html>

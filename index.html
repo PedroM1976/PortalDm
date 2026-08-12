@@ -2441,7 +2441,7 @@ async function refresh(){
           <label class="admin-pref-item"><span>Relatório semanal automático</span><input id="prefAllowWeeklyReport" type="checkbox"></label>
         </div>
         <div class="admin-pref-actions"><button id="openManagementFromPrefs" type="button">Abrir Gestão / Administração</button><button id="prefReset" class="secondary" type="button">Repor predefinições</button><button id="prefSave" class="accent" type="button">Guardar preferências</button></div>
-        <div class="avatar-manager" id="avatarManager"><h2>Avatares dos utilizadores</h2><div class="smallnote">Área exclusiva da Assistência. Selecione um utilizador e atribua um avatar profissional da pasta <b>avatars/</b>.</div><div class="avatar-manager-grid" style="margin-top:18px"><div><div id="avatarUserList" class="avatar-user-list"></div></div><div><div id="avatarCurrent" class="avatar-current"></div><h3 style="margin:20px 0 6px">Escolher avatar</h3><div id="avatarGallery" class="avatar-gallery"></div><div class="avatar-actions"><button id="avatarSave" class="accent" type="button">Guardar avatar</button><button id="avatarRemove" class="secondary" type="button">Remover avatar</button></div></div></div></div>
+        <div class="avatar-manager" id="avatarManager"><h2>Avatares dos utilizadores</h2><div class="smallnote">Área exclusiva da Assistência. Selecione um utilizador e atribua um dos avatares profissionais incorporados no Portal.</div><div class="avatar-manager-grid" style="margin-top:18px"><div><div id="avatarUserList" class="avatar-user-list"></div></div><div><div id="avatarCurrent" class="avatar-current"></div><h3 style="margin:20px 0 6px">Escolher avatar</h3><div id="avatarGallery" class="avatar-gallery"></div><div class="avatar-actions"><button id="avatarSave" class="accent" type="button">Guardar avatar</button><button id="avatarRemove" class="secondary" type="button">Remover avatar</button></div></div></div></div>
         <div class="entry-note-editor">
           <h2>Nota de entrada</h2>
           <div class="smallnote">Esta nota aparece aos utilizadores depois de iniciarem sessão. Pode ser usada para manutenção, avisos ou qualquer outra informação.</div>
@@ -2481,14 +2481,44 @@ async function refresh(){
   }
 
 
+  // Avatares incorporados no próprio HTML: não dependem da pasta externa avatars/.
+  // São SVGs leves, profissionais e ficam disponíveis em qualquer PC onde este ficheiro seja aberto.
   const AVATAR_FILES=Array.from({length:20},(_,i)=>`avatar_${String(i+1).padStart(2,'0')}.png`);
+  const AVATAR_COLORS=[
+    ['#0f3d73','#eaf3ff'],['#14532d','#ecfdf3'],['#6b21a8','#f5edff'],['#9a3412','#fff2e8'],
+    ['#0e7490','#e9fbff'],['#9f1239','#fff0f4'],['#4338ca','#eef0ff'],['#3f6212','#f5fae9'],
+    ['#7c2d12','#fff4ec'],['#155e75','#ecfbff'],['#581c87','#f7efff'],['#1e3a8a','#edf3ff'],
+    ['#166534','#eefbf1'],['#92400e','#fff7e8'],['#86198f','#fff0ff'],['#075985','#edf9ff'],
+    ['#4d7c0f','#f6fce9'],['#be123c','#fff0f3'],['#3730a3','#f0f1ff'],['#115e59','#ecfbf8']
+  ];
+  function avatarNumber(file){const m=String(file||'').match(/avatar_(\d+)/i);return m?Math.max(1,Math.min(20,Number(m[1]))):1}
+  function embeddedAvatar(file){
+    const n=avatarNumber(file),pair=AVATAR_COLORS[(n-1)%AVATAR_COLORS.length],fg=pair[0],bg=pair[1];
+    const hair=['M28 45c2-18 13-29 32-29s30 11 32 29c-8-9-18-14-32-14S36 36 28 45Z','M27 44c5-20 18-28 34-28 14 0 25 7 31 24-12-7-22-10-34-8-12 2-20 6-31 12Z','M30 43c1-18 12-28 30-28 20 0 31 12 31 30-7-10-17-15-30-15-14 0-23 4-31 13Z','M29 43c4-19 16-29 32-29 18 0 29 10 31 28-10-6-20-9-31-9-12 0-22 3-32 10Z'][(n-1)%4];
+    const glasses=n%5===0?`<g fill="none" stroke="${fg}" stroke-width="2"><rect x="39" y="48" width="14" height="9" rx="4"/><rect x="67" y="48" width="14" height="9" rx="4"/><path d="M53 52h14"/></g>`:'';
+    const beard=n%4===0?`<path d="M43 64c4 13 11 19 18 19s14-6 18-19c-5 7-11 10-18 10s-13-3-18-10Z" fill="${fg}" opacity=".22"/>`:'';
+    const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120"><rect width="120" height="120" rx="60" fill="${bg}"/><circle cx="60" cy="53" r="27" fill="#f2c7a5"/><path d="${hair.slice(1,-1)}" fill="${fg}"/><circle cx="49" cy="53" r="2.3" fill="#172033"/><circle cx="71" cy="53" r="2.3" fill="#172033"/><path d="M53 65c5 4 10 4 15 0" fill="none" stroke="#9a5c4a" stroke-width="2.2" stroke-linecap="round"/>${glasses}${beard}<path d="M22 120c3-25 17-38 38-38s35 13 38 38" fill="${fg}"/><path d="M49 82l11 12 11-12" fill="#fff" opacity=".92"/><circle cx="60" cy="60" r="57" fill="none" stroke="${fg}" stroke-opacity=".12" stroke-width="3"/></svg>`;
+    return 'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(svg);
+  }
   let avatarTarget='rui_ferreira',avatarPending='';
   function avatarStore(){try{return JSON.parse(localStorage.getItem('dmAvatarByUser')||'{}')||{}}catch(_){return {}}}
-  function avatarSrc(user,file){const f=file||avatarStore()[user];return f?`avatars/${f}`:''}
+  function avatarSrc(user,file){const f=file||avatarStore()[user];return f?embeddedAvatar(f):''}
   function avatarFallback(label){return `<div class="avatar-preview" style="display:grid;place-items:center;font-size:30px;font-weight:900;color:#64748b">${(label||'?').slice(0,1)}</div>`}
-  function renderAvatarManager(){if(!a$('avatarUserList'))return;const store=avatarStore();if(!AUTH_USERS[avatarTarget])avatarTarget=Object.keys(AUTH_USERS)[0];avatarPending=avatarPending||store[avatarTarget]||'';a$('avatarUserList').innerHTML=Object.entries(AUTH_USERS).map(([id,u])=>`<button type="button" class="avatar-user-btn ${id===avatarTarget?'active':''}" data-avatar-user="${id}">${avatarSrc(id)?`<img class="avatar-mini" src="${avatarSrc(id)}" onerror="this.style.visibility='hidden'">`:`<span class="avatar-mini" style="display:grid;place-items:center;font-weight:900">${u.label[0]}</span>`}<span><b>${u.label}</b><br><small>${id}</small></span></button>`).join('');document.querySelectorAll('[data-avatar-user]').forEach(b=>b.onclick=()=>{avatarTarget=b.dataset.avatarUser;avatarPending=store[avatarTarget]||'';renderAvatarManager()});const u=AUTH_USERS[avatarTarget];a$('avatarCurrent').innerHTML=`${avatarPending?`<img class="avatar-preview" src="avatars/${avatarPending}" onerror="this.outerHTML='${avatarFallback(u.label).replaceAll("'","&#39;")}'">`:avatarFallback(u.label)}<div><b style="font-size:18px">${u.label}</b><div class="smallnote">${avatarPending||'Sem avatar atribuído'}</div></div>`;a$('avatarGallery').innerHTML=AVATAR_FILES.map(f=>`<button type="button" class="avatar-choice ${f===avatarPending?'active':''}" data-avatar-file="${f}" title="${f}"><img src="avatars/${f}" alt="${f}" onerror="this.parentElement.style.display='none'"><small>${f.replace('.png','')}</small></button>`).join('');document.querySelectorAll('[data-avatar-file]').forEach(b=>b.onclick=()=>{avatarPending=b.dataset.avatarFile;renderAvatarManager()})}
+  function renderAvatarManager(){
+    if(!a$('avatarUserList'))return;
+    const store=avatarStore();
+    if(!AUTH_USERS[avatarTarget])avatarTarget=Object.keys(AUTH_USERS)[0];
+    avatarPending=avatarPending||store[avatarTarget]||'';
+    a$('avatarUserList').innerHTML=Object.entries(AUTH_USERS).map(([id,u])=>`<button type="button" class="avatar-user-btn ${id===avatarTarget?'active':''}" data-avatar-user="${id}">${avatarSrc(id)?`<img class="avatar-mini" src="${avatarSrc(id)}" alt="Avatar de ${u.label}">`:`<span class="avatar-mini" style="display:grid;place-items:center;font-weight:900">${u.label[0]}</span>`}<span><b>${u.label}</b><br><small>${id}</small></span></button>`).join('');
+    document.querySelectorAll('[data-avatar-user]').forEach(b=>b.onclick=()=>{avatarTarget=b.dataset.avatarUser;avatarPending=store[avatarTarget]||'';renderAvatarManager()});
+    const u=AUTH_USERS[avatarTarget];
+    a$('avatarCurrent').innerHTML=`${avatarPending?`<img class="avatar-preview" src="${embeddedAvatar(avatarPending)}" alt="Avatar selecionado">`:avatarFallback(u.label)}<div><b style="font-size:18px">${u.label}</b><div class="smallnote">${avatarPending||'Sem avatar atribuído'}</div></div>`;
+    a$('avatarGallery').innerHTML=AVATAR_FILES.map(f=>`<button type="button" class="avatar-choice ${f===avatarPending?'active':''}" data-avatar-file="${f}" title="${f}"><img src="${embeddedAvatar(f)}" alt="${f}"><small>${f.replace('.png','')}</small></button>`).join('');
+    document.querySelectorAll('[data-avatar-file]').forEach(b=>b.onclick=()=>{avatarPending=b.dataset.avatarFile;renderAvatarManager()});
+  }
   function saveAvatar(){const st=avatarStore();if(avatarPending)st[avatarTarget]=avatarPending;else delete st[avatarTarget];localStorage.setItem('dmAvatarByUser',JSON.stringify(st));renderAvatarManager();alert('Avatar guardado para '+AUTH_USERS[avatarTarget].label+'.')}
   function removeAvatar(){avatarPending='';saveAvatar()}
+
 
   function insertWeeklyReportTab(){
     if(a$('tab-weekly-report'))return;

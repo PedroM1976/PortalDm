@@ -2290,7 +2290,7 @@ async function refresh(){
   .auth-error{min-height:22px;color:#b91c1c;font-size:13px;font-weight:800;margin-top:8px;text-align:center}
   .auth-submit{width:100%;background:#0657ff;padding:13px}
   .auth-session{display:flex;align-items:center;gap:10px;margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
-  .auth-user{font-size:12px;font-weight:900;color:#fff;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);padding:8px 10px;border-radius:10px}
+  .auth-user{font-size:12px;font-weight:900;color:#fff;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);padding:6px 10px 6px 6px;border-radius:12px;display:flex;align-items:center;gap:8px}.auth-user-avatar{width:34px;height:34px;border-radius:50%;object-fit:cover;background:#fff;border:2px solid rgba(255,255,255,.88);box-shadow:0 2px 8px rgba(0,0,0,.18);flex:0 0 auto}.auth-user-avatar-fallback{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.72);font-size:15px}
   #logoutBtn{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.22)}
   .theme-picker{position:relative}
   .theme-toggle{display:flex;align-items:center;gap:7px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.24);color:#fff;padding:8px 10px}
@@ -2500,6 +2500,8 @@ async function refresh(){
     const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120"><rect width="120" height="120" rx="60" fill="${bg}"/><circle cx="60" cy="53" r="27" fill="#f2c7a5"/><path d="${hair.slice(1,-1)}" fill="${fg}"/><circle cx="49" cy="53" r="2.3" fill="#172033"/><circle cx="71" cy="53" r="2.3" fill="#172033"/><path d="M53 65c5 4 10 4 15 0" fill="none" stroke="#9a5c4a" stroke-width="2.2" stroke-linecap="round"/>${glasses}${beard}<path d="M22 120c3-25 17-38 38-38s35 13 38 38" fill="${fg}"/><path d="M49 82l11 12 11-12" fill="#fff" opacity=".92"/><circle cx="60" cy="60" r="57" fill="none" stroke="${fg}" stroke-opacity=".12" stroke-width="3"/></svg>`;
     return 'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(svg);
   }
+  // Disponibiliza o gerador para o CRM integrado usar exatamente o mesmo avatar do Portal.
+  window.dmEmbeddedAvatar = embeddedAvatar;
   let avatarTarget='rui_ferreira',avatarPending='';
   let avatarCache={};
   let avatarSupabaseLoaded=false;
@@ -2538,11 +2540,13 @@ async function refresh(){
       saveAvatarLocalStore(remote);
       if(AUTH_USERS[avatarTarget])avatarPending=remote[avatarTarget]||'';
       renderAvatarManager();
+      renderSessionIdentity();
       return true;
     }catch(err){
       console.warn('Não foi possível carregar avatares do Supabase. A usar cache local.',err);
       avatarCache=avatarLocalStore();
       renderAvatarManager();
+      renderSessionIdentity();
       return false;
     }
   }
@@ -2567,6 +2571,12 @@ async function refresh(){
     }
   }
   function avatarSrc(user,file){const f=file||avatarStore()[user];return f?embeddedAvatar(f):''}
+  function renderSessionIdentity(){
+    const el=a$('authUserLabel');
+    if(!el||!currentUser||!AUTH_USERS[currentUser])return;
+    const label=AUTH_USERS[currentUser].label||currentUser,src=avatarSrc(currentUser);
+    el.innerHTML=src?`<img class="auth-user-avatar" src="${src}" alt="Avatar de ${label}"><span>${label}</span>`:`<span class="auth-user-avatar-fallback">${String(label).slice(0,1)}</span><span>${label}</span>`;
+  }
   function avatarFallback(label){return `<div class="avatar-preview" style="display:grid;place-items:center;font-size:30px;font-weight:900;color:#64748b">${(label||'?').slice(0,1)}</div>`}
   function renderAvatarManager(){
     if(!a$('avatarUserList'))return;
@@ -2587,7 +2597,8 @@ async function refresh(){
     try{
       await writeAvatarToSupabase(user,file);
       const st={...avatarStore()};if(file)st[user]=file;else delete st[user];
-      avatarSupabaseLoaded=true;saveAvatarLocalStore(st);renderAvatarManager();
+      avatarSupabaseLoaded=true;saveAvatarLocalStore(st);renderAvatarManager();renderSessionIdentity();
+      if(user===(sessionStorage.getItem('dmCurrentUser')||'')) setTimeout(()=>window.dmAplicarAvatarCrm?.(),50);
       alert(file?'Avatar guardado no Supabase para '+AUTH_USERS[user].label+'.':'Avatar removido do Supabase para '+AUTH_USERS[user].label+'.');
     }catch(err){
       console.error('Erro ao guardar avatar no Supabase:',err);
@@ -2725,7 +2736,7 @@ async function refresh(){
     if(a$('weeklyReportOwnSelector'))a$('weeklyReportOwnSelector').style.display=isAssist?'block':'none';
     if(a$('weeklyReportOwnUser')&&currentUser!=='assistencia')a$('weeklyReportOwnUser').value=currentUser;
     const active=document.querySelector('.tab-btn.active');if(!active||active.classList.contains('role-hidden')){const first=[...document.querySelectorAll('.tab-btn[data-tab]:not(.role-hidden)')][0];if(first)activateTab(first.dataset.tab)}
-    if(a$('authUserLabel'))a$('authUserLabel').textContent=AUTH_USERS[currentUser].label;applyTheme(userTheme(currentUser));renderAdminPrefs();
+    renderSessionIdentity();applyTheme(userTheme(currentUser));renderAdminPrefs();
   }
   const BACKUP_HISTORY_KEY='dmPortalBackupHistory';
   function collectPortalBackup(){
@@ -4803,6 +4814,57 @@ window.dmOpenPeriodDetail=open;
   let crmUtilizadorCarregado = '';
   let portalScrollY = 0;
 
+  async function dmObterAvatarUtilizador(userId){
+    if(!userId) return '';
+    let file='';
+    try{
+      const local=JSON.parse(localStorage.getItem('dmAvatarByUser')||'{}')||{};
+      file=String(local[userId]||'').trim();
+    }catch(_){}
+    try{
+      const cfg=window.DM_SUPABASE_CONFIG||{};
+      const url=String(cfg.url||'').replace(/\/$/,'');
+      const key=String(cfg.key||'');
+      if(url&&key){
+        const response=await fetch(url+'/rest/v1/user_avatars?select=avatar_file&user_id=eq.'+encodeURIComponent(userId)+'&limit=1',{
+          headers:{apikey:key,Authorization:'Bearer '+key},cache:'no-store'
+        });
+        if(response.ok){
+          const rows=await response.json();
+          const remote=String(rows?.[0]?.avatar_file||'').trim();
+          if(remote){
+            file=remote;
+            try{
+              const local=JSON.parse(localStorage.getItem('dmAvatarByUser')||'{}')||{};
+              local[userId]=remote;
+              localStorage.setItem('dmAvatarByUser',JSON.stringify(local));
+            }catch(_){}
+          }
+        }
+      }
+    }catch(err){console.warn('Não foi possível sincronizar o avatar do CRM:',err)}
+    return file;
+  }
+
+  window.dmAplicarAvatarCrm = async function(){
+    const frame=document.getElementById('dmCrmIntegratedFrame');
+    const userId=sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||'';
+    if(!frame||!userId) return;
+    const file=await dmObterAvatarUtilizador(userId);
+    try{
+      const doc=frame.contentDocument;
+      const chip=doc?.getElementById('userChip');
+      if(!chip) return;
+      const label=(chip.textContent||userId).trim();
+      if(file&&typeof window.dmEmbeddedAvatar==='function'){
+        const src=window.dmEmbeddedAvatar(file);
+        chip.innerHTML='<img src="'+src+'" alt="Avatar" style="width:34px;height:34px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,.72);box-shadow:0 2px 7px rgba(0,0,0,.16);flex:0 0 auto"><span></span>';
+        const span=chip.querySelector('span'); if(span) span.textContent=label;
+        chip.style.display='inline-flex';chip.style.alignItems='center';chip.style.gap='9px';chip.style.padding='6px 12px 6px 7px';
+      }
+    }catch(err){console.warn('Não foi possível apresentar o avatar no CRM:',err)}
+  };
+
   window.dmResetCrmSession = function(){
     const frame = document.getElementById('dmCrmIntegratedFrame');
     crmCarregado = false;
@@ -4830,6 +4892,7 @@ window.dmOpenPeriodDetail=open;
       try{
         frame.srcdoc = '';
         const bytes = Uint8Array.from(atob(CRM_HTML_B64), c => c.charCodeAt(0));
+        frame.onload = function(){ setTimeout(()=>window.dmAplicarAvatarCrm?.(),80); };
         frame.srcdoc = new TextDecoder('utf-8').decode(bytes);
         crmCarregado = true;
         crmUtilizadorCarregado = utilizadorAtual;
@@ -4846,6 +4909,7 @@ window.dmOpenPeriodDetail=open;
         w?.document?.getElementById('oppOverlay')?.classList.add('hidden');
         w?.document?.getElementById('settingsOverlay')?.classList.add('hidden');
         if(typeof w?.loadAll === 'function') w.loadAll();
+        setTimeout(()=>window.dmAplicarAvatarCrm?.(),80);
       }catch(_){}
     }
     area.classList.add('dm-open');

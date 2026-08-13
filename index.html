@@ -2477,7 +2477,7 @@ async function refresh(){
         </div>
       </div></div>`;
     const footer=main.querySelector('.footer');footer?main.insertBefore(section,footer):main.appendChild(section);
-    btn.addEventListener('click',()=>activateTab('tab-admin-pref'));a$('prefTargetUser').addEventListener('change',renderAdminPrefs);a$('prefSave').onclick=saveAdminPrefs;a$('prefReset').onclick=resetTargetPrefs;a$('openManagementFromPrefs').onclick=()=>a$('dmManagementButton')?.click();a$('entryNoteSave').onclick=saveEntryNote;a$('entryNotePreview').onclick=()=>showEntryNote(true);a$('entryNoteImage').addEventListener('change',handleEntryNoteImage);a$('entryNoteRemoveImage').onclick=removeEntryNoteImage;a$('entryNoteVisibleUntil').addEventListener('change',updateEntryNoteExpiryStatus);a$('weeklyReportOpen').onclick=()=>showWeeklyReport(true,a$('weeklyReportUser')?.value||'administrador');a$('weeklyReportClearHistory').onclick=clearWeeklyReportHistory;a$('backupDownload').onclick=downloadPortalBackup;a$('backupRestorePick').onclick=()=>a$('backupRestoreFile').click();a$('backupRestoreFile').addEventListener('change',restorePortalBackup);renderEntryNoteEditor();renderBackupStatus();renderAvatarManager();a$('avatarSave').onclick=saveAvatar;a$('avatarRemove').onclick=removeAvatar;
+    btn.addEventListener('click',()=>activateTab('tab-admin-pref'));a$('prefTargetUser').addEventListener('change',renderAdminPrefs);a$('prefSave').onclick=saveAdminPrefs;a$('prefReset').onclick=resetTargetPrefs;a$('openManagementFromPrefs').onclick=()=>a$('dmManagementButton')?.click();a$('entryNoteSave').onclick=saveEntryNote;a$('entryNotePreview').onclick=()=>showEntryNote(true);a$('entryNoteImage').addEventListener('change',handleEntryNoteImage);a$('entryNoteRemoveImage').onclick=removeEntryNoteImage;a$('entryNoteVisibleUntil').addEventListener('change',updateEntryNoteExpiryStatus);a$('weeklyReportOpen').onclick=()=>showWeeklyReport(true,a$('weeklyReportUser')?.value||'administrador');a$('weeklyReportClearHistory').onclick=clearWeeklyReportHistory;a$('backupDownload').onclick=downloadPortalBackup;a$('backupRestorePick').onclick=()=>a$('backupRestoreFile').click();a$('backupRestoreFile').addEventListener('change',restorePortalBackup);renderEntryNoteEditor();renderBackupStatus();renderAvatarManager();loadAvatarsFromSupabase();a$('avatarSave').onclick=saveAvatar;a$('avatarRemove').onclick=removeAvatar;
   }
 
 
@@ -2501,23 +2501,100 @@ async function refresh(){
     return 'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(svg);
   }
   let avatarTarget='rui_ferreira',avatarPending='';
-  function avatarStore(){try{return JSON.parse(localStorage.getItem('dmAvatarByUser')||'{}')||{}}catch(_){return {}}}
+  let avatarCache={};
+  let avatarSupabaseLoaded=false;
+
+  function avatarLocalStore(){
+    try{return JSON.parse(localStorage.getItem('dmAvatarByUser')||'{}')||{}}catch(_){return {}}
+  }
+  function saveAvatarLocalStore(store){
+    avatarCache={...store};
+    try{localStorage.setItem('dmAvatarByUser',JSON.stringify(avatarCache))}catch(_){}
+  }
+  function avatarStore(){
+    if(Object.keys(avatarCache).length||avatarSupabaseLoaded)return avatarCache;
+    avatarCache=avatarLocalStore();
+    return avatarCache;
+  }
+  function avatarSupabaseConfig(){
+    const cfg=window.DM_SUPABASE_CONFIG||{};
+    return {url:String(cfg.url||'').replace(/\/$/,''),key:String(cfg.key||'')};
+  }
+  async function loadAvatarsFromSupabase(){
+    const cfg=avatarSupabaseConfig();
+    if(!cfg.url||!cfg.key)return false;
+    try{
+      const response=await fetch(cfg.url+'/rest/v1/user_avatars?select=user_id,avatar_file',{
+        headers:{apikey:cfg.key,Authorization:'Bearer '+cfg.key},cache:'no-store'
+      });
+      if(!response.ok)throw new Error('HTTP '+response.status+' · '+await response.text().catch(()=>''));
+      const rows=await response.json();
+      const remote={};
+      (Array.isArray(rows)?rows:[]).forEach(row=>{
+        const user=String(row.user_id||'').trim(),file=String(row.avatar_file||'').trim();
+        if(user&&file&&AVATAR_FILES.includes(file))remote[user]=file;
+      });
+      avatarSupabaseLoaded=true;
+      saveAvatarLocalStore(remote);
+      if(AUTH_USERS[avatarTarget])avatarPending=remote[avatarTarget]||'';
+      renderAvatarManager();
+      return true;
+    }catch(err){
+      console.warn('Não foi possível carregar avatares do Supabase. A usar cache local.',err);
+      avatarCache=avatarLocalStore();
+      renderAvatarManager();
+      return false;
+    }
+  }
+  async function writeAvatarToSupabase(user,file){
+    const cfg=avatarSupabaseConfig();
+    if(!cfg.url||!cfg.key)throw new Error('Configuração do Supabase em falta.');
+    if(file){
+      const response=await fetch(cfg.url+'/rest/v1/user_avatars?on_conflict=user_id',{
+        method:'POST',
+        headers:{
+          apikey:cfg.key,Authorization:'Bearer '+cfg.key,'Content-Type':'application/json',
+          Prefer:'resolution=merge-duplicates,return=minimal'
+        },
+        body:JSON.stringify([{user_id:user,avatar_file:file,updated_at:new Date().toISOString()}])
+      });
+      if(!response.ok)throw new Error('HTTP '+response.status+' · '+await response.text().catch(()=>''));
+    }else{
+      const response=await fetch(cfg.url+'/rest/v1/user_avatars?user_id=eq.'+encodeURIComponent(user),{
+        method:'DELETE',headers:{apikey:cfg.key,Authorization:'Bearer '+cfg.key,Prefer:'return=minimal'}
+      });
+      if(!response.ok)throw new Error('HTTP '+response.status+' · '+await response.text().catch(()=>''));
+    }
+  }
   function avatarSrc(user,file){const f=file||avatarStore()[user];return f?embeddedAvatar(f):''}
   function avatarFallback(label){return `<div class="avatar-preview" style="display:grid;place-items:center;font-size:30px;font-weight:900;color:#64748b">${(label||'?').slice(0,1)}</div>`}
   function renderAvatarManager(){
     if(!a$('avatarUserList'))return;
     const store=avatarStore();
     if(!AUTH_USERS[avatarTarget])avatarTarget=Object.keys(AUTH_USERS)[0];
-    avatarPending=avatarPending||store[avatarTarget]||'';
+    if(avatarPending===''&&store[avatarTarget])avatarPending=store[avatarTarget];
     a$('avatarUserList').innerHTML=Object.entries(AUTH_USERS).map(([id,u])=>`<button type="button" class="avatar-user-btn ${id===avatarTarget?'active':''}" data-avatar-user="${id}">${avatarSrc(id)?`<img class="avatar-mini" src="${avatarSrc(id)}" alt="Avatar de ${u.label}">`:`<span class="avatar-mini" style="display:grid;place-items:center;font-weight:900">${u.label[0]}</span>`}<span><b>${u.label}</b><br><small>${id}</small></span></button>`).join('');
     document.querySelectorAll('[data-avatar-user]').forEach(b=>b.onclick=()=>{avatarTarget=b.dataset.avatarUser;avatarPending=store[avatarTarget]||'';renderAvatarManager()});
     const u=AUTH_USERS[avatarTarget];
-    a$('avatarCurrent').innerHTML=`${avatarPending?`<img class="avatar-preview" src="${embeddedAvatar(avatarPending)}" alt="Avatar selecionado">`:avatarFallback(u.label)}<div><b style="font-size:18px">${u.label}</b><div class="smallnote">${avatarPending||'Sem avatar atribuído'}</div></div>`;
+    a$('avatarCurrent').innerHTML=`${avatarPending?`<img class="avatar-preview" src="${embeddedAvatar(avatarPending)}" alt="Avatar selecionado">`:avatarFallback(u.label)}<div><b style="font-size:18px">${u.label}</b><div class="smallnote">${avatarPending||'Sem avatar atribuído'}${avatarSupabaseLoaded?' · Supabase':''}</div></div>`;
     a$('avatarGallery').innerHTML=AVATAR_FILES.map(f=>`<button type="button" class="avatar-choice ${f===avatarPending?'active':''}" data-avatar-file="${f}" title="${f}"><img src="${embeddedAvatar(f)}" alt="${f}"><small>${f.replace('.png','')}</small></button>`).join('');
     document.querySelectorAll('[data-avatar-file]').forEach(b=>b.onclick=()=>{avatarPending=b.dataset.avatarFile;renderAvatarManager()});
   }
-  function saveAvatar(){const st=avatarStore();if(avatarPending)st[avatarTarget]=avatarPending;else delete st[avatarTarget];localStorage.setItem('dmAvatarByUser',JSON.stringify(st));renderAvatarManager();alert('Avatar guardado para '+AUTH_USERS[avatarTarget].label+'.')}
-  function removeAvatar(){avatarPending='';saveAvatar()}
+  async function saveAvatar(){
+    const user=avatarTarget,file=avatarPending;
+    const saveBtn=a$('avatarSave'),removeBtn=a$('avatarRemove');
+    if(saveBtn)saveBtn.disabled=true;if(removeBtn)removeBtn.disabled=true;
+    try{
+      await writeAvatarToSupabase(user,file);
+      const st={...avatarStore()};if(file)st[user]=file;else delete st[user];
+      avatarSupabaseLoaded=true;saveAvatarLocalStore(st);renderAvatarManager();
+      alert(file?'Avatar guardado no Supabase para '+AUTH_USERS[user].label+'.':'Avatar removido do Supabase para '+AUTH_USERS[user].label+'.');
+    }catch(err){
+      console.error('Erro ao guardar avatar no Supabase:',err);
+      alert('Não foi possível guardar o avatar no Supabase. Confirme se a tabela user_avatars e as permissões estão criadas.\n\n'+(err.message||err));
+    }finally{if(saveBtn)saveBtn.disabled=false;if(removeBtn)removeBtn.disabled=false}
+  }
+  async function removeAvatar(){avatarPending='';await saveAvatar()}
 
 
   function insertWeeklyReportTab(){

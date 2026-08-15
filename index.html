@@ -515,7 +515,23 @@ function canonicalizeField(field){
   return [...byToken.values()].sort((a,b)=>a.localeCompare(b,'pt',{sensitivity:'base',numeric:true}));
 }
 function val(row,names){const keys=Object.keys(row); for(const n of names){const k=keys.find(x=>norm(x)===norm(n)); if(k!==undefined) return row[k];} return '';}
-function n(v){ if(v===null||v===undefined||v==='') return 0; if(typeof v==='number') return v; return parseFloat(String(v).replace(/\s/g,'').replace(/\./g,'').replace(',','.'))||0;}
+function n(v){
+  if(v===null||v===undefined||v==='') return 0;
+  if(typeof v==='number') return Number.isFinite(v)?v:0;
+  let s=String(v).trim().replace(/\s/g,'');
+  if(!s) return 0;
+  // Supabase devolve NUMERIC frequentemente com ponto decimal (ex.: 133.4616).
+  // Excel/CSV PT pode usar vírgula decimal (ex.: 133,4616) e, por vezes, separador de milhares.
+  if(s.includes(',') && s.includes('.')){
+    // O último separador é tratado como decimal.
+    if(s.lastIndexOf(',')>s.lastIndexOf('.')) s=s.replace(/\./g,'').replace(',','.');
+    else s=s.replace(/,/g,'');
+  }else if(s.includes(',')){
+    s=s.replace(/\./g,'').replace(',','.');
+  }
+  const x=Number(s);
+  return Number.isFinite(x)?x:0;
+}
 function rowToData(r){
  const artigo=String(val(r,['ARTIGO','REFERENCIA','CÓDIGO','CODIGO'])||'N/D');
  const desc=String(val(r,['DESCRIÇAO','DESCRICAO','DESCRIÇÃO','DESIGNACAO','DESIGNAÇÃO'])||'');
@@ -531,7 +547,7 @@ function rowToData(r){
  const temMargem=(margemRaw!==null && margemRaw!==undefined && String(margemRaw).trim()!=='');
  const margemCalculada=temCusto
    ? valorLiquido-n(custoRaw)
-   : (temMargem ? valorLiquido*n(margemRaw)/100 : 0);
+   : (temMargem ? valorLiquido*(Math.abs(n(margemRaw))<=1 ? n(margemRaw) : n(margemRaw)/100) : 0);
  const areaRaw=cleanFilterLabel(val(r,['AREA DE NEGOCIO','ÁREA DE NEGÓCIO','AREA','ÁREA']));
  const areaFinal=(!areaRaw||['N/D','ND','NAO ATRIBUIDO','NÃO ATRIBUÍDO','SEM AREA','SEM ÁREA'].includes(norm(areaRaw)))?'CAMPOS LIVRES':areaRaw;
  return {
@@ -1107,7 +1123,7 @@ async function loadSupabaseSales(preserveFilters=false){
    const temMargem=(r.margem!==null&&r.margem!==undefined&&String(r.margem).trim()!=='');
    const margem=temCusto
      ? valorLiquido-n(r.pcusto)
-     : (temMargem ? valorLiquido*n(r.margem)/100 : 0);
+     : (temMargem ? valorLiquido*(Math.abs(n(r.margem))<=1 ? n(r.margem) : n(r.margem)/100) : 0);
    const areaRaw=cleanFilterLabel(r.area);
    const areaFinal=(!areaRaw||['N/D','ND','NAO ATRIBUIDO','NÃO ATRIBUÍDO','SEM AREA','SEM ÁREA'].includes(norm(areaRaw)))?'CAMPOS LIVRES':areaRaw;
    return {

@@ -687,7 +687,7 @@ function filtered(){
 function sum(arr,key){return arr.reduce((a,r)=>a+(+r[key]||0),0)}
 function group(arr,key){const m=new Map(); arr.forEach(r=>{const k=r[key]||'N/D'; if(!m.has(k)) m.set(k,{nome:k,sem_iva:0,iva:0,com_iva:0,margem:0,qtd:0,clientes:new Set(),artigos:new Set(),vendedores:new Set(),linhas:0}); const o=m.get(k); o.sem_iva+=r.valor_liquido; o.iva+=r.iva; o.com_iva+=r.valor_total; o.margem+=r.margem; o.qtd+=r.quantidade; o.clientes.add(r.cliente); o.artigos.add(r.artigo); o.vendedores.add(r.vendedor); o.linhas++; }); return [...m.values()].sort((a,b)=>b.sem_iva-a.sem_iva);}
 function setText(id,v){$(id).textContent=v}
-function updateKpis(arr){ const sem=sum(arr,'valor_liquido'), iva=sum(arr,'iva'), com=sum(arr,'valor_total'), margem=sum(arr,'margem'); setText('kpiSemIva',eur.format(sem)); setText('kpiIva',eur.format(iva)); setText('kpiComIva',eur.format(com)); setText('kpiMargem',eur.format(margem)); const margemPctKpi=(sem>0 && margem>=0) ? (margem/sem*100) : null; setText('kpiMargemPct', Number.isFinite(margemPctKpi) && margemPctKpi<=100 ? margemPctKpi.toFixed(1).replace('.',',')+'% sobre vendas sem IVA' : 'ND'); setText('kpiClientes',numf.format(new Set(arr.map(r=>r.cliente)).size)); setText('kpiArtigos',numf.format(new Set(arr.map(r=>r.artigo)).size)); setText('kpiVendedores',numf.format(new Set(arr.map(r=>r.vendedor)).size)); setText('kpiQtd',numf.format(sum(arr,'quantidade'))); setText('kpiLinhas',numf.format(arr.length)+' linhas filtradas'); }
+function updateKpis(arr){ const sem=sum(arr,'valor_liquido'), iva=sum(arr,'iva'), com=sum(arr,'valor_total'), margem=sum(arr,'margem'); setText('kpiSemIva',eur.format(sem)); setText('kpiIva',eur.format(iva)); setText('kpiComIva',eur.format(com)); setText('kpiMargem',eur.format(margem)); const margemPctKpi=marginPct(arr); setText('kpiMargemPct', Number.isFinite(margemPctKpi) ? margemPctKpi.toFixed(2).replace('.',',')+'% sobre vendas sem IVA' : 'Sem margem calculável'); setText('kpiClientes',numf.format(new Set(arr.map(r=>r.cliente)).size)); setText('kpiArtigos',numf.format(new Set(arr.map(r=>r.artigo)).size)); setText('kpiVendedores',numf.format(new Set(arr.map(r=>r.vendedor)).size)); setText('kpiQtd',numf.format(sum(arr,'quantidade'))); setText('kpiLinhas',numf.format(arr.length)+' linhas filtradas'); }
 function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
 function escAttr(s){return esc(String(s)).replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function trunc(s, max=42){s=String(s||''); return s.length>max ? s.slice(0,max-1)+'…' : s;}
@@ -1107,9 +1107,12 @@ async function loadSupabaseSales(preserveFilters=false){
    const temCusto=(r.pcusto!==null&&r.pcusto!==undefined&&String(r.pcusto).trim()!=='');
    const temMargem=(r.margem!==null&&r.margem!==undefined&&String(r.margem).trim()!=='');
    const margemTaxa=temMargem?n(r.margem):null;
-   const margem=temMargem
-     ? valorLiquido*(Math.abs(margemTaxa)<=1?margemTaxa:margemTaxa/100)
-     : (temCusto?valorLiquido-n(r.pcusto):0);
+   const margemPctLinha=temMargem
+     ? (Math.abs(margemTaxa)<=1 ? margemTaxa*100 : margemTaxa)
+     : (temCusto && valorLiquido!==0 ? ((valorLiquido-n(r.pcusto))/valorLiquido)*100 : null);
+   const margem=Number.isFinite(margemPctLinha)
+     ? valorLiquido*(margemPctLinha/100)
+     : 0;
    const areaRaw=cleanFilterLabel(r.area);
    const areaFinal=(!areaRaw||['N/D','ND','NAO ATRIBUIDO','NÃO ATRIBUÍDO','SEM AREA','SEM ÁREA'].includes(norm(areaRaw)))?'CAMPOS LIVRES':areaRaw;
    return {
@@ -4511,11 +4514,29 @@ function finishLoading(){
 function isoWeek(d=new Date()){const x=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));x.setUTCDate(x.getUTCDate()+4-(x.getUTCDay()||7));const y=new Date(Date.UTC(x.getUTCFullYear(),0,1));return {year:x.getUTCFullYear(),week:Math.ceil((((x-y)/86400000)+1)/7)}}
 function rowWeekNumber(v){const s=String(v||'');const m=s.match(/(?:SEMANA|SEM|S|WEEK)?\s*[-:]?\s*(\d{1,2})(?!\d)/i);return m?Number(m[1]):0}
 function marginPct(rows){
-  const net=rows.reduce((a,r)=>a+(Number(r.valor_liquido)||0),0);
-  const margin=rows.reduce((a,r)=>a+(Number(r.margem)||0),0);
-  if(net<=0 || margin<0) return null;
+  const valid=(rows||[]).filter(r=>Number.isFinite(Number(r.valor_liquido)));
+  const net=valid.reduce((a,r)=>a+(Number(r.valor_liquido)||0),0);
+  if(!valid.length || net===0) return null;
+
+  // Preferir a taxa de margem original da linha quando disponível.
+  let weighted=0, weightedNet=0;
+  valid.forEach(r=>{
+    const p=Number(r.margem_pct);
+    const v=Number(r.valor_liquido)||0;
+    if(Number.isFinite(p)){
+      weighted += v*p;
+      weightedNet += v;
+    }
+  });
+  if(weightedNet!==0){
+    const p=weighted/weightedNet;
+    if(Number.isFinite(p)) return p;
+  }
+
+  // Fallback: margem em euros / vendas líquidas.
+  const margin=valid.reduce((a,r)=>a+(Number(r.margem)||0),0);
   const value=(margin/net)*100;
-  return Number.isFinite(value) && value>=0 && value<=100 ? value : null;
+  return Number.isFinite(value) ? value : null;
 }
 function pct(v){
   if(v===null || v===undefined || !Number.isFinite(Number(v))) return 'ND';
@@ -4575,7 +4596,8 @@ function renderWeekly(){
       G('dmMonthTitle').textContent=monthName.charAt(0).toUpperCase()+monthName.slice(1)+' de '+now.getFullYear();
       G('dmMonthSem').textContent=money(monthRows.reduce((a,r)=>a+(Number(r.valor_liquido)||0),0));
       G('dmMonthCom').textContent=money(monthRows.reduce((a,r)=>a+(Number(r.valor_total)||0),0));
-      G('dmMonthMargem').textContent=pct(marginPct(monthRows));
+      { const mp=marginPct(monthRows), me=monthRows.reduce((a,r)=>a+(Number(r.margem)||0),0);
+        G('dmMonthMargem').textContent=(Number.isFinite(mp)?pct(mp):'ND')+' · '+money(me); }
       G('dmMonthClientes').textContent=number(new Set(monthRows.map(r=>r.cliente).filter(Boolean)).size);
     }
   }
@@ -4587,7 +4609,8 @@ function renderWeekly(){
       G('dmWeekTitle').textContent='Semana '+iw.week+' de '+iw.year;
       G('dmWeekSem').textContent=money(weekRows.reduce((a,r)=>a+(Number(r.valor_liquido)||0),0));
       G('dmWeekCom').textContent=money(weekRows.reduce((a,r)=>a+(Number(r.valor_total)||0),0));
-      G('dmWeekMargem').textContent=pct(marginPct(weekRows));
+      { const wp=marginPct(weekRows), we=weekRows.reduce((a,r)=>a+(Number(r.margem)||0),0);
+        G('dmWeekMargem').textContent=(Number.isFinite(wp)?pct(wp):'ND')+' · '+money(we); }
       G('dmWeekClientes').textContent=number(new Set(weekRows.map(r=>r.cliente).filter(Boolean)).size);
     }
   }

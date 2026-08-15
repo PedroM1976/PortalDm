@@ -524,8 +524,8 @@ function rowToData(r){
  const valorTotalCalculado=valorLiquido+valorIva;
  const margemRaw=val(r,['MARGEM']);
  const custoRaw=val(r,['PCUSTO','PREÇO CUSTO','PRECO CUSTO','CUSTO']);
- // Usa a margem da origem quando estiver preenchida. Nas linhas em que
- // MARGEM está vazia, calcula automaticamente VALOR LÍQUIDO - PCUSTO.
+ // Regra exatamente igual ao index de teste correto:
+ // usa MARGEM diretamente; se estiver vazia, calcula VALOR LÍQUIDO - PCUSTO.
  const margemCalculada=(margemRaw!==null && margemRaw!==undefined && String(margemRaw).trim()!=='')
    ? n(margemRaw)
    : valorLiquido-n(custoRaw);
@@ -1098,13 +1098,10 @@ async function loadSupabaseSales(preserveFilters=false){
    const desc=String(r.descricao||'');
    const valorLiquido=n(r.valor_liquido);
    const valorIva=n(r.iva);
-   // No Supabase, r.margem é uma percentagem. Para todos os KPIs/gráficos,
-   // guardamos DATA.margem em euros. PCUSTO tem prioridade quando disponível.
-   const temCusto=(r.pcusto!==null&&r.pcusto!==undefined&&String(r.pcusto).trim()!=='');
+   // Regra exatamente igual ao index de teste correto:
+   // usa MARGEM diretamente; se estiver vazia, calcula VALOR LÍQUIDO - PCUSTO.
    const temMargem=(r.margem!==null&&r.margem!==undefined&&String(r.margem).trim()!=='');
-   const margem=temCusto
-     ? valorLiquido-n(r.pcusto)
-     : (temMargem ? valorLiquido*n(r.margem)/100 : 0);
+   const margem=temMargem ? n(r.margem) : valorLiquido-n(r.pcusto);
    const areaRaw=cleanFilterLabel(r.area);
    const areaFinal=(!areaRaw||['N/D','ND','NAO ATRIBUIDO','NÃO ATRIBUÍDO','SEM AREA','SEM ÁREA'].includes(norm(areaRaw)))?'CAMPOS LIVRES':areaRaw;
    return {

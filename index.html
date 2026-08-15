@@ -922,7 +922,7 @@ function updateAdvanced(arr){
  table('tableMargemArtigos', group(arr,'artigo_desc').sort((a,b)=>b.margem-a.margem).slice(0,15), mgCols);
  const com=group(arr,'vendedor').map(r=>({...r,comissao:arr.filter(x=>(x.vendedor||'N/D')===r.nome).reduce((a,x)=>a+(+x.comissao||0),0)})).sort((a,b)=>b.comissao-a.comissao);
  table('tableComissoes', com, [{h:'Vendedor',k:'nome'},{h:'Sem IVA',f:r=>eur2.format(r.sem_iva),num:true},{h:'Margem',f:r=>eur2.format(r.margem),num:true},{h:'Comissão',f:r=>eur2.format(r.comissao),num:true}]);
- table('tableFornecedores', group(arr.filter(r=>r.fornecedor&&norm(r.fornecedor)!=='N/D'&&norm(r.fornecedor)!=='ND'),'fornecedor').slice(0,15), mgCols);
+ table('tableFornecedores', group(arr,'fornecedor').slice(0,15), mgCols);
  table('tableFamilias', group(arr,'familia').slice(0,15), mgCols);
  table('tableSubfamilias', group(arr,'subfamilia').slice(0,15), mgCols);
 }
@@ -1117,7 +1117,7 @@ async function loadSupabaseSales(preserveFilters=false){
      associado:String(r.associado||'N/D'),
      vendedor:String(r.vendedor||'N/D'),
      tecnico:cleanFilterLabel(r.tecnico),
-     fornecedor:String(r.fornecedor||'N/D'),
+     fornecedor:String((r.Fornecedor??r.fornecedor)||'N/D'),
      documento:String(r.documento||'N/D'),
      artigo,
      descricao:desc,
@@ -1267,9 +1267,9 @@ window.addEventListener('load',()=>{
   }
   function renderProductCharts(){
     const arr=rowsForCharts();
-    barChart('chartFornecedoresExtra',group(arr.filter(r=>r.fornecedor&&norm(r.fornecedor)!=='N/D'&&norm(r.fornecedor)!=='ND'),'fornecedor').slice(0,12),'nome','sem_iva','fornecedor');
+    barChart('chartFornecedoresExtra',group(arr,'fornecedor').slice(0,12),'nome','sem_iva','fornecedor');
     barChart('chartFamiliasExtra',group(arr,'familia').slice(0,12),'nome','sem_iva','familia');
-    barChart('chartMargemFornecedor',group(arr.filter(r=>r.fornecedor&&norm(r.fornecedor)!=='N/D'&&norm(r.fornecedor)!=='ND'),'fornecedor').sort((a,b)=>b.margem-a.margem).slice(0,12),'nome','margem','fornecedor');
+    barChart('chartMargemFornecedor',group(arr,'fornecedor').sort((a,b)=>b.margem-a.margem).slice(0,12),'nome','margem','fornecedor');
     barChart('chartQtdSubfamilia',group(arr,'subfamilia').sort((a,b)=>b.qtd-a.qtd).slice(0,12),'nome','qtd','subfamilia');
   }
   function renderExtras(){ensurePanels();renderAreaYear();renderProductCharts();}

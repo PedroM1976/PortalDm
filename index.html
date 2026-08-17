@@ -5708,22 +5708,42 @@ window.dmRefreshDailyReport=()=>{populateYears();render()};
   function setInput(el,value){ if(!el)return false; el.value=value; el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); el.focus(); return true; }
   function search(kind,query){
     query=String(query||'').trim(); if(!query)return false; const k=norm(kind);
-    if(k.includes('client')){
+    const qn=norm(query);
+    const tryClient=()=>{
       activateTab('clientes'); const sel=document.getElementById('cliente');
-      if(sel){const opt=[...sel.options].find(o=>norm(o.textContent).includes(norm(query))||norm(o.value).includes(norm(query))); if(opt){sel.value=opt.value;sel.dispatchEvent(new Event('change',{bubbles:true})); if(typeof update==='function')update(); return true;}}
-      const global=document.getElementById('artigoPesquisa'); return setInput(global,query);
-    }
-    if(k.includes('art')||k.includes('prod')){ activateTab(k.includes('prod')?'produto':'artigos'); return setInput(document.getElementById('artigoPesquisa'),query); }
+      if(!sel)return false;
+      const opt=[...sel.options].find(o=>norm(o.textContent).includes(qn)||norm(o.value).includes(qn));
+      if(!opt)return false;
+      sel.value=opt.value; sel.dispatchEvent(new Event('change',{bubbles:true})); if(typeof update==='function')update();
+      setTimeout(()=>sel.scrollIntoView({behavior:'smooth',block:'center'}),80); return true;
+    };
+    const tryArticle=()=>{
+      activateTab(k.includes('prod')?'produto':'artigos');
+      const input=document.getElementById('artigoPesquisa');
+      if(!input)return false; setInput(input,query); if(typeof update==='function')update();
+      setTimeout(()=>input.scrollIntoView({behavior:'smooth',block:'center'}),80); return true;
+    };
+    if(k.includes('client')) return tryClient();
+    if(k.includes('art')||k.includes('prod')) return tryArticle();
     if(k.includes('catalog')){ activateTab('catalogo'); return setInput(document.getElementById('catalogSearch'),query); }
-    return setInput(document.getElementById('artigoPesquisa'),query);
+    // Pesquisa universal: primeiro tenta cliente; se não existir, pesquisa artigo/produto.
+    if(k==='all'||k==='todos'||!k){ if(tryClient())return true; return tryArticle(); }
+    return tryArticle();
   }
   function handle(cmd){
-    const action=norm(cmd.action||cmd.command||cmd.type); const target=cmd.target||cmd.tab||cmd.entity||''; const query=cmd.query||cmd.value||cmd.term||cmd.name||'';
+    const ctx=(cmd&&cmd.context&&typeof cmd.context==='object')?cmd.context:{};
+    const action=norm(cmd.action||cmd.command||cmd.type);
+    const target=cmd.target||cmd.tab||cmd.entity||ctx.section||ctx.entity||ctx.report||'';
+    const query=cmd.query||cmd.value||cmd.term||cmd.name||ctx.query||'';
     let ok=false;
-    if(action==='navigate'||action==='abrir'||action==='open'||action==='tab') ok=activateTab(target);
-    else if(action==='search'||action==='pesquisar'||action==='procurar'||action==='encontrar'||action==='find') ok=search(target,query);
-    else if(action==='report'||action==='relatorio') {ok=activateTab(target||'relatorios'); if(query){const input=document.getElementById('reportClientSearch')||document.getElementById('reportSellerSearch');setInput(input,query);}}
-    else if(action==='open_entity'||action==='openentity'){ok=search(target,query);}
+    if(action==='navigate'||action==='abrir'||action==='tab') ok=activateTab(target);
+    else if(action==='open'){
+      // open com entity/query significa abrir/pesquisar uma ficha; sem query significa navegação.
+      ok=query?search(cmd.entity||ctx.entity||target,query):activateTab(target);
+    }
+    else if(action==='search'||action==='pesquisar'||action==='procurar'||action==='encontrar'||action==='find') ok=search(cmd.entity||ctx.entity||target,query);
+    else if(action==='report'||action==='relatorio') {ok=activateTab(ctx.section||ctx.report||target||'relatorios'); if(query){const input=document.getElementById('reportClientSearch')||document.getElementById('reportSellerSearch');setInput(input,query);}}
+    else if(action==='open_entity'||action==='openentity'){ok=search(cmd.entity||ctx.entity||target,query);}
     reply(ok?'PEDRO_COMMAND_OK':'PEDRO_COMMAND_ERROR',{action,target,query,message:ok?'Comando executado no Portal DM.':'Não encontrei o destino/comando no Portal DM.'});
   }
   window.addEventListener('message',ev=>{const d=ev.data;if(!d||typeof d!=='object')return;if(d.type==='PEDRO_COMMAND'||d.source==='PEDRO'||d.source==='JARVIS')handle(d.payload&&typeof d.payload==='object'?d.payload:d);});

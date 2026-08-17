@@ -5710,8 +5710,18 @@ window.dmRefreshDailyReport=()=>{populateYears();render()};
     let btn=document.querySelector(`.tab-btn[data-tab="${CSS.escape(String(id))}"]`);
     if(!btn && key.includes('relatorio'))btn=document.querySelector('.tab-btn[data-tab="tab-weekly-report"],.tab-btn[data-tab="tab-daily-report"]');
     if(!btn||btn.classList.contains('role-hidden'))return false;
-    btn.click();
-    btn.scrollIntoView({behavior:'smooth',block:'nearest',inline:'center'});
+    const tabId=btn.dataset.tab;
+    // Ativação direta: não depende do onclick original da aba.
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b===btn));
+    document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.id===tabId));
+    try{btn.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,view:window}))}catch(_){try{btn.click()}catch(__){}}
+    // Reforça o estado depois dos handlers do Portal.
+    setTimeout(()=>{
+      document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b===btn));
+      document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.id===tabId));
+      try{if(window.DATA&&window.DATA.length&&typeof window.update==='function')window.update()}catch(_){}
+      try{btn.scrollIntoView({behavior:'smooth',block:'nearest',inline:'center'})}catch(_){}
+    },40);
     return true;
   }
   function setControl(el,value){
@@ -5773,11 +5783,15 @@ window.dmRefreshDailyReport=()=>{populateYears();render()};
     else if(['search','pesquisar','procurar','encontrar','find'].includes(action)){ok=search(cmd.entity||ctx.entity||target,query);message=ok?'Pesquisa aplicada no Portal DM.':'Não encontrei essa pesquisa.'}
     else if(action==='report'||action==='relatorio'){ok=openReport(ctx.report||target||query);message=ok?'Relatório aberto no Portal DM.':'Não consegui abrir o relatório.'}
     else if(action==='open_entity'||action==='openentity'){ok=search(cmd.entity||ctx.entity||target,query);message=ok?'Registo procurado no Portal DM.':'Não encontrei o registo.'}
+    else if(action==='exit'||action==='sair'||action==='close'){
+      ok=true;message='A sair do Portal DM.';reply('PEDRO_COMMAND_OK',{action,target,query,message,context:ctx});
+      setTimeout(()=>{try{window.close()}catch(_){}},80);return;
+    }
     reply(ok?'PEDRO_COMMAND_OK':'PEDRO_COMMAND_ERROR',{action,target,query,message,context:ctx});
   }
   window.addEventListener('message',ev=>{const d=ev.data;if(!d||typeof d!=='object')return;if(d.type==='PEDRO_COMMAND'||d.source==='PEDRO'||d.source==='JARVIS')handle(d.payload&&typeof d.payload==='object'?d.payload:d)});
   window.PEDRO_PORTAL={handle,activateTab,search,applyFilters,openReport,version:'2.0'};
-  function ready(){reply('PORTAL_READY',{title:document.title,capabilities:['navigate','search','filter','navigate_filter','report','clientes','artigos','produtos','ano','mes']})}
+  function ready(){reply('PORTAL_READY',{title:document.title,capabilities:['navigate','search','filter','navigate_filter','report','exit','clientes','artigos','produtos','ano','mes']})}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(ready,900));else setTimeout(ready,900);
 })();
 </script>

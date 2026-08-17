@@ -5682,5 +5682,55 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
 window.dmRefreshDailyReport=()=>{populateYears();render()};
 })();
 </script>
+
+<script id="pedroPortalListener">
+(function(){
+  'use strict';
+  const norm=v=>String(v??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
+  const aliases={
+    clientes:'tab-clientes',cliente:'tab-clientes',
+    artigos:'tab-artigos',artigo:'tab-artigos',produtos:'tab-produto',produto:'tab-produto',fornecedores:'tab-produto',fornecedor:'tab-produto',
+    relatorios:'tab-weekly-report',relatorio:'tab-weekly-report',semanal:'tab-weekly-report',diario:'tab-daily-report',
+    comercial:'tab-comercial',tecnico:'tab-tecnico',geografia:'tab-geografia',catalogo:'tab-catalogo',visao:'tab-visao'
+  };
+  function reply(type,detail={}){
+    const msg={source:'PORTAL_DM',type,...detail};
+    try{ if(window.opener&&!window.opener.closed) window.opener.postMessage(msg,'*'); }catch(_){}
+    try{ if(window.parent&&window.parent!==window) window.parent.postMessage(msg,'*'); }catch(_){}
+  }
+  function activateTab(name){
+    const key=norm(name).replace(/\s+/g,''); let id=aliases[key]||name;
+    if(!String(id).startsWith('tab-')) id=aliases[norm(name)]||id;
+    let btn=document.querySelector(`.tab-btn[data-tab="${CSS.escape(String(id))}"]`);
+    if(!btn && /relat/.test(norm(name))) btn=document.querySelector('.tab-btn[data-tab="tab-weekly-report"],.tab-btn[data-tab="tab-daily-report"]');
+    if(!btn)return false; btn.click(); btn.scrollIntoView({behavior:'smooth',block:'nearest',inline:'center'}); return true;
+  }
+  function setInput(el,value){ if(!el)return false; el.value=value; el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); el.focus(); return true; }
+  function search(kind,query){
+    query=String(query||'').trim(); if(!query)return false; const k=norm(kind);
+    if(k.includes('client')){
+      activateTab('clientes'); const sel=document.getElementById('cliente');
+      if(sel){const opt=[...sel.options].find(o=>norm(o.textContent).includes(norm(query))||norm(o.value).includes(norm(query))); if(opt){sel.value=opt.value;sel.dispatchEvent(new Event('change',{bubbles:true})); if(typeof update==='function')update(); return true;}}
+      const global=document.getElementById('artigoPesquisa'); return setInput(global,query);
+    }
+    if(k.includes('art')||k.includes('prod')){ activateTab(k.includes('prod')?'produto':'artigos'); return setInput(document.getElementById('artigoPesquisa'),query); }
+    if(k.includes('catalog')){ activateTab('catalogo'); return setInput(document.getElementById('catalogSearch'),query); }
+    return setInput(document.getElementById('artigoPesquisa'),query);
+  }
+  function handle(cmd){
+    const action=norm(cmd.action||cmd.command||cmd.type); const target=cmd.target||cmd.tab||cmd.entity||''; const query=cmd.query||cmd.value||cmd.term||cmd.name||'';
+    let ok=false;
+    if(action==='navigate'||action==='abrir'||action==='open'||action==='tab') ok=activateTab(target);
+    else if(action==='search'||action==='pesquisar'||action==='procurar'||action==='encontrar'||action==='find') ok=search(target,query);
+    else if(action==='report'||action==='relatorio') {ok=activateTab(target||'relatorios'); if(query){const input=document.getElementById('reportClientSearch')||document.getElementById('reportSellerSearch');setInput(input,query);}}
+    else if(action==='open_entity'||action==='openentity'){ok=search(target,query);}
+    reply(ok?'PEDRO_COMMAND_OK':'PEDRO_COMMAND_ERROR',{action,target,query,message:ok?'Comando executado no Portal DM.':'Não encontrei o destino/comando no Portal DM.'});
+  }
+  window.addEventListener('message',ev=>{const d=ev.data;if(!d||typeof d!=='object')return;if(d.type==='PEDRO_COMMAND'||d.source==='PEDRO'||d.source==='JARVIS')handle(d.payload&&typeof d.payload==='object'?d.payload:d);});
+  window.PEDRO_PORTAL={handle,activateTab,search,version:'1.0'};
+  function ready(){reply('PORTAL_READY',{title:document.title,capabilities:['navigate','search','report','clientes','artigos','produtos']});}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(ready,500));else setTimeout(ready,500);
+})();
+</script>
 </body>
 </html>

@@ -1093,45 +1093,6 @@ async function loadSupabaseSales(preserveFilters=false){
  }
 
  if(!rawRows.length) throw new Error('A tabela vendas não contém registos BASE_SAGE.');
-
- // Complementa Grupo de Cliente e Associado a partir das tabelas dedicadas no Supabase.
- // Mantém todo o restante comportamento do portal inalterado.
- async function dmLoadAuxTable(tableCandidates,valueCandidates){
-   for(const tableName of tableCandidates){
-     try{
-       const base=cfg.url.replace(/\/$/,'')+'/rest/v1/'+encodeURIComponent(tableName);
-       const response=await fetch(base+'?select=*',{headers:{apikey:cfg.key,Authorization:'Bearer '+cfg.key},cache:'no-store'});
-       if(!response.ok) continue;
-       const rows=await response.json();
-       if(!Array.isArray(rows)) continue;
-       return rows.map((row,index)=>{
-         const key=Object.keys(row||{}).find(k=>valueCandidates.some(c=>norm(k)===norm(c)));
-         return {id:row?.id ?? null,index,value:key?String(row[key]??'').trim():''};
-       }).filter(x=>x.value);
-     }catch(_){ }
-   }
-   return [];
- }
-
- try{
-   const [grupoAux,associadoAux]=await Promise.all([
-     dmLoadAuxTable(['Grupo de cliente','Grupo de Cliente','grupo_cliente'],['Grupo de Cliente','Grupo Cliente','grupo_cliente']),
-     dmLoadAuxTable(['associado','Associado'],['Associado','associado'])
-   ]);
-   const mergeAux=(aux,field)=>{
-     if(!aux.length) return;
-     const byId=new Map(aux.filter(x=>x.id!==null&&x.id!==undefined).map(x=>[String(x.id),x.value]));
-     rawRows.forEach((row,index)=>{
-       const matched=(row?.id!==null&&row?.id!==undefined&&byId.get(String(row.id))) || aux[index]?.value || '';
-       if(matched) row[field]=matched;
-     });
-   };
-   mergeAux(grupoAux,'grupo_cliente');
-   mergeAux(associadoAux,'associado');
- }catch(e){
-   console.warn('Não foi possível complementar Grupo de Cliente / Associado:',e);
- }
-
  DATA=rawRows.map(r=>{
    const artigo=String(r.artigo||'N/D');
    const desc=String(r.descricao||'');
@@ -1152,8 +1113,8 @@ async function loadSupabaseSales(preserveFilters=false){
      nif:String(r.nif||''),
      email:String(r.email||''),
      telefone:String(r.telefone||''),
-     grupo_cliente:String(r.grupo_cliente||'N/D'),
-     associado:String(r.associado||'N/D'),
+     grupo_cliente:String((r.grupo_cliente ?? r['Grupo de Cliente'] ?? r['Grupo Cliente'])||'N/D'),
+     associado:String((r.associado ?? r.Associado)||'N/D'),
      vendedor:String(r.vendedor||'N/D'),
      tecnico:cleanFilterLabel(r.tecnico),
      fornecedor:String((r.Fornecedor??r.fornecedor)||'N/D'),

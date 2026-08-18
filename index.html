@@ -3148,6 +3148,43 @@ window.portugalMap=function(el,arr){
  svg+='</g></svg>';
  root.innerHTML=svg;bindChartClicks(el);
 };
+// Extensão internacional: quando o campo DISTRITO contém um país, mostra-o junto ao mapa.
+const dmInternationalPositions={
+ 'ESPANHA':[735,825],
+ 'SPAIN':[735,825],
+ 'FRANCA':[735,825],
+ 'FRANÇA':[735,825],
+ 'FRANCE':[735,825]
+};
+const dmPortugalDistricts=new Set(districtPositions.map(x=>norm(x[0])));
+const dmOriginalPortugalMap=window.portugalMap;
+window.portugalMap=function(el,arr){
+ dmOriginalPortugalMap(el,arr);
+ const root=$(el);if(!root)return;
+ const svg=root.querySelector('svg');if(!svg)return;
+ const international=new Map();
+ (arr||[]).forEach(r=>{
+   const raw=cleanFilterLabel(r.distrito);const token=norm(raw);
+   if(!raw||['N/D','ND'].includes(token)||dmPortugalDistricts.has(token))return;
+   let country=token;
+   if(token==='SPAIN')country='ESPANHA';
+   if(token==='FRANCE'||token==='FRANCA')country='FRANÇA';
+   if(!dmInternationalPositions[country])return;
+   if(!international.has(country))international.set(country,{nome:country,sem_iva:0});
+   international.get(country).sem_iva+=Number(r.valor_liquido)||0;
+ });
+ if(!international.size)return;
+ let layer='<g aria-label="Vendas internacionais"><text x="760" y="770" style="font-size:18px;font-weight:900;fill:#23314a">Internacional</text>';
+ [...international.values()].forEach((row,i)=>{
+   const pos=dmInternationalPositions[row.nome],x=pos[0],y=pos[1]+i*95;
+   const col=palette[(i+4)%palette.length];
+   layer+=`<circle data-detail-type="distrito" data-detail-value="${escAttr(row.nome)}" cx="${x}" cy="${y}" r="27" fill="${col}" fill-opacity=".86" stroke="#fff" stroke-width="4" filter="url(#dmMapShadow-${el})"><title>${esc(row.nome)}: ${eur2.format(row.sem_iva)}</title></circle>`;
+   layer+=`<text x="${x+43}" y="${y-4}" style="font-size:17px;font-weight:900;fill:#23314a">${esc(row.nome)}</text><text x="${x+43}" y="${y+20}" style="font-size:15px;font-weight:800;fill:#64748b">${eur2.format(row.sem_iva)}</text>`;
+ });
+ layer+='</g>';
+ svg.insertAdjacentHTML('beforeend',layer);
+ bindChartClicks(el);
+};
 // Redesenha todos os mapas já existentes com o novo modelo.
 function redraw(){
  try{

@@ -48,6 +48,14 @@ window.__xlsxReady = (async function(){
   return null;
 })();
 </script>
+<style id="dmCriticalNoFlash">
+/* Evita FOUC: drawers que aparecem no HTML antes do CSS completo */
+#dmAiDrawer[aria-hidden="true"]{position:fixed!important;top:0!important;right:0!important;width:min(620px,96vw)!important;height:100vh!important;transform:translateX(110%)!important;visibility:hidden!important;pointer-events:none!important;}
+#dmAiDrawer[aria-hidden="false"]{visibility:visible!important;}
+#dmAiDrawerBackdrop[aria-hidden="true"]{opacity:0!important;visibility:hidden!important;pointer-events:none!important;}
+#dmAiDrawerBackdrop[aria-hidden="false"]{visibility:visible!important;}
+@media(max-width:700px){#dmAiDrawer[aria-hidden="true"]{width:100vw!important;}}
+</style>
 <style>
 :root{--bg:#f4f7fb;--card:#fff;--ink:#0b1533;--muted:#64748b;--line:#dbe3ef;--accent:#0657ff;--accent2:#00a651;--orange:#ff9900;--pink:#ef2f78;--purple:#7c3aed;--cyan:#06b6d4;--bad:#b91c1c;--good:#047857;--shadow:0 14px 34px rgba(15,23,42,.10)}
 *{box-sizing:border-box} body{margin:0;background:var(--bg);font-family:Inter,Segoe UI,Arial,sans-serif;color:var(--ink)}
@@ -1058,9 +1066,32 @@ async function parseFile(file,preserveFilters=false){
  const totalTeste=DATA.reduce((s,r)=>s+(Number(r.valor_liquido)||0),0);
  $('status').textContent=`Ficheiro carregado: ${file.name}. ${DATA.length} linhas válidas · vendas sem IVA: ${fmt(totalTeste)}. ${fileHandle?'Auto-refresh direto ativo.':'Pode usar “Atualizar agora” para reler o ficheiro selecionado.'}`;
 }
+const DM_SALES_CACHE_TTL=10*60*1000;
+function dmSalesCacheDB(){
+ return new Promise((resolve,reject)=>{
+   if(!('indexedDB' in window))return resolve(null);
+   const req=indexedDB.open('PortalDMCache',1);
+   req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains('cache'))db.createObjectStore('cache')};
+   req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
+ });
+}
+async function dmSalesCacheGet(){
+ try{const db=await dmSalesCacheDB();if(!db)return null;return await new Promise((resolve,reject)=>{const tx=db.transaction('cache','readonly'),rq=tx.objectStore('cache').get('sales_v3');rq.onsuccess=()=>resolve(rq.result||null);rq.onerror=()=>reject(rq.error)});}catch(_){return null}
+}
+async function dmSalesCachePut(data){
+ try{const db=await dmSalesCacheDB();if(!db)return;await new Promise((resolve,reject)=>{const tx=db.transaction('cache','readwrite');tx.objectStore('cache').put({savedAt:Date.now(),data},'sales_v3');tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});}catch(e){console.warn('Cache de vendas indisponível.',e)}
+}
+async function dmUseFreshSalesCache(){
+ const cached=await dmSalesCacheGet();
+ if(!cached||!Array.isArray(cached.data)||!cached.data.length||Date.now()-Number(cached.savedAt||0)>DM_SALES_CACHE_TTL)return false;
+ DATA=cached.data;window.DATA=DATA;buildMeta();initTabs();initSelects();if(typeof update==='function')update();
+ const statusEl=$('status');if(statusEl){statusEl.hidden=false;statusEl.textContent='Dados carregados do cache local · '+DATA.length.toLocaleString('pt-PT')+' linhas. Atualização automática mantém a informação sincronizada.'}
+ return true;
+}
 async function loadSupabaseSales(preserveFilters=false){
  const cfg=window.DM_SUPABASE_CONFIG||{};
  if(!cfg.url||!cfg.key) throw new Error('Configuração do Supabase em falta.');
+ if(!preserveFilters&&await dmUseFreshSalesCache())return true;
  const statusEl=$('status');
  if(statusEl){statusEl.hidden=false;statusEl.textContent='A carregar vendas do Supabase…';}
 
@@ -1078,7 +1109,6 @@ async function loadSupabaseSales(preserveFilters=false){
        apikey:cfg.key,
        Authorization:'Bearer '+cfg.key,
        Range:from+'-'+to,
-       Prefer:'count=exact'
      },
      cache:'no-store'
    });
@@ -1139,6 +1169,7 @@ async function loadSupabaseSales(preserveFilters=false){
  window.DATA=DATA;
  buildMeta();initTabs();initSelects();
  if(typeof update==='function')update();
+ dmSalesCachePut(DATA);
  if(statusEl)statusEl.textContent='Supabase ligado · '+DATA.length.toLocaleString('pt-PT')+' linhas de vendas carregadas.';
  return true;
 }
@@ -1188,7 +1219,7 @@ async function reloadFile(){
    if($('status')){$('status').hidden=false;$('status').textContent='Erro ao carregar vendas do Supabase: '+e.message;}
  }
 }
-function startTimer(){ if(timer) clearInterval(timer); timer=setInterval(reloadFile,60000); }
+function startTimer(){ if(timer) clearInterval(timer); timer=setInterval(()=>{if(!document.hidden)reloadFile()},600000); }
 $('reloadBtn')?.addEventListener('click', reloadFile);
 $('pdfBtn')?.addEventListener('click', ()=>window.print());
 initTabs(); initSelects(); update();
@@ -5211,6 +5242,7 @@ body.dm-clientes-no-scroll{overflow:hidden}
 #tab-visitas .visit-day.out{opacity:.38}
 #tab-visitas .visit-day.today{outline:2px solid #0657ff;outline-offset:1px}
 #tab-visitas .visit-day-head{display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:12px;font-weight:900;margin-bottom:6px}
+#tab-visitas .visit-day-head-left{display:flex;align-items:center;gap:6px;min-width:0}#tab-visitas .visit-week-number{display:inline-flex;align-items:center;justify-content:center;min-width:32px;padding:2px 7px;border-radius:999px;background:#eaf1ff;border:1px solid #cbdcff;color:#0657ff;font-size:10px;font-weight:900;white-space:nowrap}
 #tab-visitas .visit-event{border-left:5px solid #0657ff;background:#f8fbff;border-radius:9px;padding:7px 8px;margin:6px 0;font-size:11px;position:relative;cursor:pointer}
 #tab-visitas .visit-event:hover{box-shadow:0 6px 16px rgba(15,23,42,.12)}
 #tab-visitas .visit-event b{display:block;padding-right:25px}
@@ -5318,10 +5350,13 @@ body.dm-clientes-no-scroll{overflow:hidden}
  }
  function populateClients(){const dl=$('visitClientList');if(dl)dl.innerHTML=existingClients().map(x=>`<option value="${esc(x)}"></option>`).join('')}
  async function loadRows(force=false){
-   if(state.loading)return;state.loading=true;status('A sincronizar com Supabase…');
+   if(state.loading)return;
+   const now=Date.now(),last=state.lastSync?state.lastSync.getTime():0;
+   if(!force&&last&&now-last<60000){render();return}
+   state.loading=true;status('A sincronizar com Supabase…');
    try{
      syncRoleUI();populateClients();
-     let q='select=*&order=data_visita.asc,hora_visita.asc';
+     let q='select=id,utilizador,cliente,data_visita,hora_visita,tipo_visita,observacoes,anulada,motivo_anulacao,anulada_em,anulada_por&order=data_visita.asc,hora_visita.asc';
      if(namedSeller()||!privileged()) q+='&utilizador=eq.'+encodeURIComponent(currentUser())+'&anulada=eq.false';
      const res=await fetch(`${SUPABASE_URL}/rest/v1/${TABLE}?${q}`,{headers:apiHeaders()});
      if(!res.ok) throw new Error(await readableError(res));
@@ -5339,6 +5374,7 @@ body.dm-clientes-no-scroll{overflow:hidden}
    if(fs==='ativa')rows=rows.filter(r=>!r.anulada);if(fs==='anulada')rows=rows.filter(r=>!!r.anulada);
    return rows;
  }
+ function isoWeekNumber(date){const d=new Date(Date.UTC(date.getFullYear(),date.getMonth(),date.getDate()));const day=d.getUTCDay()||7;d.setUTCDate(d.getUTCDate()+4-day);const yearStart=new Date(Date.UTC(d.getUTCFullYear(),0,1));return Math.ceil((((d-yearStart)/86400000)+1)/7)}
  function render(){
    if(!$('visitCalendar'))return;syncRoleUI();populateClients();
    const d=state.month,year=d.getFullYear(),month=d.getMonth();$('visitMonthLabel').textContent=d.toLocaleDateString('pt-PT',{month:'long',year:'numeric'});
@@ -5346,8 +5382,8 @@ body.dm-clientes-no-scroll{overflow:hidden}
    let html=['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'].map(x=>`<div class="visit-weekday">${x}</div>`).join('');
    for(let i=0;i<42;i++){
      let day,cd,out=false;if(i<start){day=prevDays-start+i+1;cd=new Date(year,month-1,day);out=true}else if(i>=start+days){day=i-start-days+1;cd=new Date(year,month+1,day);out=true}else{day=i-start+1;cd=new Date(year,month,day)}
-     const iso=isoDate(cd),items=rows.filter(r=>r.data_visita===iso).sort((a,b)=>String(a.hora_visita||'').localeCompare(String(b.hora_visita||'')));
-     html+=`<div class="visit-day ${out?'out':''} ${iso===today?'today':''}" data-visit-date="${iso}"><div class="visit-day-head"><span>${day}</span><span>${items.length?items.length+' visita'+(items.length===1?'':'s'):''}</span></div>${items.map(eventHtml).join('')}</div>`;
+     const iso=isoDate(cd),items=rows.filter(r=>r.data_visita===iso).sort((a,b)=>String(a.hora_visita||'').localeCompare(String(b.hora_visita||''))),week=isoWeekNumber(cd),showWeek=cd.getDay()===1;
+     html+=`<div class="visit-day ${out?'out':''} ${iso===today?'today':''}" data-visit-date="${iso}"><div class="visit-day-head"><span class="visit-day-head-left"><span>${day}</span>${showWeek?`<span class="visit-week-number">S${String(week).padStart(2,'0')}</span>`:''}</span><span>${items.length?items.length+' visita'+(items.length===1?'':'s'):''}</span></div>${items.map(eventHtml).join('')}</div>`;
    }
    $('visitCalendar').innerHTML=html;
  }
@@ -5400,7 +5436,7 @@ body.dm-clientes-no-scroll{overflow:hidden}
    $('visitHistoryYear').onchange=()=>{refreshMonths();$('visitHistoryDay').value='';draw()};$('visitHistoryMonth').onchange=()=>{$('visitHistoryDay').value='';draw()};$('visitHistoryDay').onchange=draw;refreshMonths();draw();
  }
  function historyHtml(r){const cancelled=!!r.anulada,time=String(r.hora_visita||'').slice(0,5),date=r.data_visita?new Date(r.data_visita+'T12:00:00').toLocaleDateString('pt-PT'):'';return `<div class="visit-history-card ${cancelled?'cancelled':''}"><b>${esc(date)} · ${esc(time)} · ${esc(r.tipo_visita||'Visita')}</b><small>${esc(userLabel(r.utilizador))}${r.observacoes?' · '+esc(r.observacoes):''}</small>${cancelled?`<div class="visit-cancel-reason"><b>Motivo da anulação:</b> ${esc(r.motivo_anulacao||'Não indicado')}<br><small>Por ${esc(r.anulada_por||'N/D')}${r.anulada_em?' · '+esc(new Date(r.anulada_em).toLocaleString('pt-PT')):''}</small></div>`:''}</div>`}
- function boot(){ensureUI();syncRoleUI();populateClients();const n=new Date();if($('visitDate')&&!$('visitDate').value)$('visitDate').value=isoDate(n);if($('visitTime')&&!$('visitTime').value)$('visitTime').value=`${String(n.getHours()).padStart(2,'0')}:${String(Math.ceil(n.getMinutes()/5)*5%60).padStart(2,'0')}`;loadRows();setInterval(()=>{if(!document.hidden&&currentUser())loadRows()},60000);window.addEventListener('focus',()=>{if(currentUser())loadRows()});document.addEventListener('visibilitychange',()=>{if(!document.hidden&&currentUser())loadRows()});}
+ function boot(){ensureUI();syncRoleUI();populateClients();const n=new Date();if($('visitDate')&&!$('visitDate').value)$('visitDate').value=isoDate(n);if($('visitTime')&&!$('visitTime').value)$('visitTime').value=`${String(n.getHours()).padStart(2,'0')}:${String(Math.ceil(n.getMinutes()/5)*5%60).padStart(2,'0')}`;loadRows();setInterval(()=>{if(!document.hidden&&currentUser())loadRows()},300000);window.addEventListener('focus',()=>{if(currentUser())loadRows()});document.addEventListener('visibilitychange',()=>{if(!document.hidden&&currentUser())loadRows()});}
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(boot,120));else setTimeout(boot,120);
  const oldUpdate=window.update;if(typeof oldUpdate==='function')window.update=function(){const out=oldUpdate.apply(this,arguments);setTimeout(populateClients,20);return out};
 })();
@@ -5564,7 +5600,7 @@ async function api(path='',options={}){
 async function loadRemote(show=true){
  if(loading)return;loading=true;if(show)setStatus('A sincronizar campanhas com o Supabase…');
  try{
-   const data=await api('?select=*&order=created_at.desc',{method:'GET'});rows=Array.isArray(data)?data:[];localSave();if(show)setStatus('Campanhas sincronizadas.');
+   const data=await api('?select=id,title,subtitle,description,type,priority,start_date,end_date,image_url,video_url,pdf_url,link_url,active,featured,created_at,updated_by&order=created_at.desc',{method:'GET'});rows=Array.isArray(data)?data:[];localSave();if(show)setStatus('Campanhas sincronizadas.');
  }catch(e){rows=localLoad();if(show)setStatus('Não foi possível ler o Supabase. A mostrar cache local. '+(e.message||e),true);console.warn(e)}
  finally{loading=false;renderAll()}
 }
@@ -5634,7 +5670,7 @@ function edit(id){if(!isAssistance())return;const c=rows.find(x=>String(x.id)===
 async function remove(id){if(!isAssistance()){alert('Apenas o utilizador Assistência pode apagar campanhas.');return}const c=rows.find(x=>String(x.id)===String(id));if(!c)return;if(!confirm('Apagar a campanha “'+c.title+'”?'))return;setStatus('A apagar do Supabase…');try{await api('?id=eq.'+encodeURIComponent(id),{method:'DELETE'});if(String(editId)===String(id))resetForm();await loadRemote(false);setStatus('Campanha apagada.')}catch(e){setStatus('Erro ao apagar: '+(e.message||e),true)}}
 function openTab(){document.querySelector('.tab-btn[data-tab="tab-campanhas"]')?.click();setTimeout(()=>$('tab-campanhas')?.scrollIntoView({behavior:'smooth',block:'start'}),40)}
 let bound=false;function bind(){if(bound)return;bound=true;$('dmCampaignSave')?.addEventListener('click',submit);$('dmCampaignCancel')?.addEventListener('click',resetForm);$('dmCampaignRefresh')?.addEventListener('click',()=>loadRemote(true));document.addEventListener('click',e=>{if(e.target?.id==='authSubmit')setTimeout(()=>loadRemote(false),80);if(e.target?.id==='authLogout')setTimeout(renderAll,50)});window.addEventListener('storage',e=>{if(e.key==='dmCurrentUser')setTimeout(renderAll,30)})}
-async function boot(){ensureUI();rows=localLoad();resetForm();renderAll();await loadRemote(false);setInterval(syncRole,500);setInterval(()=>loadRemote(false),30000)}
+async function boot(){ensureUI();rows=localLoad();resetForm();renderAll();await loadRemote(false);setInterval(syncRole,500);setInterval(()=>{if(!document.hidden)loadRemote(false)},300000)}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(boot,600));else setTimeout(boot,600);
 window.dmRefreshCampaigns=()=>loadRemote(true);
 })();
@@ -5853,5 +5889,104 @@ window.dmRefreshDailyReport=()=>{populateYears();render()};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(ready,900));else setTimeout(ready,900);
 })();
 </script>
+
+
+<!-- ===== DM MODERN UI + CHAT INTERNO ===== -->
+<style id="dmModernTabsAndChatStyles">
+/* Abas modernas: continuam horizontais, nunca passam para menu lateral */
+.tabs{gap:10px;padding:10px 12px;border-radius:22px;scrollbar-width:thin;scroll-snap-type:x proximity;overscroll-behavior-x:contain}
+.tab-btn{min-height:44px;padding:10px 15px;border-radius:14px;font-size:13px;font-weight:850;display:inline-flex;align-items:center;justify-content:center;gap:7px;scroll-snap-align:start;transition:transform .16s ease,box-shadow .16s ease,background .16s ease,border-color .16s ease}
+.tab-btn:hover{transform:translateY(-1px);border-color:#afc4ef;box-shadow:0 5px 14px rgba(15,23,42,.08)}
+.tab-btn.active{box-shadow:0 8px 20px rgba(6,87,255,.24)}
+.tab-btn::before{font-size:14px;opacity:.86}
+.tab-btn[data-tab="tab-visao"]::before{content:"⌂"}.tab-btn[data-tab="tab-crescimento"]::before{content:"↗"}.tab-btn[data-tab="tab-clientes"]::before{content:"◎"}.tab-btn[data-tab="tab-artigos"]::before{content:"◇"}.tab-btn[data-tab="tab-catalogo"]::before{content:"▤"}.tab-btn[data-tab="tab-comercial"]::before{content:"€"}.tab-btn[data-tab="tab-tecnico"]::before{content:"⚙"}.tab-btn[data-tab="tab-geografia"]::before{content:"⌖"}.tab-btn[data-tab="tab-produto"]::before{content:"□"}.tab-btn[data-tab="tab-visitas"]::before{content:"◷"}.tab-btn[data-tab="tab-campanhas"]::before{content:"✦"}.tab-btn[data-tab="tab-admin-pref"]::before{content:"⚙"}
+#dmCrmTabBtn::before{content:"◉"}
+.panel,.card,.filter{transition:box-shadow .18s ease,border-color .18s ease}.panel:hover{border-color:#cad7eb}.panel{border-radius:22px}.card{border-radius:22px}
+@media(max-width:768px){
+  header{padding:16px 14px 50px}.head{gap:12px}.brand{width:100%;align-items:center}.logo{width:92px;max-height:48px;border-radius:11px}h1{font-size:21px}.sub{font-size:12px}
+  main{padding:0 10px 24px}.upload{margin-top:-30px;padding:12px;border-radius:16px}.filters{gap:8px;margin-bottom:12px}.filter{padding:10px;border-radius:14px}.actions{gap:7px}.actions button{flex:1;min-width:120px}
+  .tabs{position:sticky;top:0;margin:0 -2px 12px;padding:8px;border-radius:15px;gap:7px;box-shadow:0 8px 24px rgba(15,23,42,.12)}
+  .tab-btn{min-height:40px;padding:8px 11px;font-size:12px;border-radius:11px;flex:0 0 auto}
+  .panel{padding:14px;border-radius:16px}.panel h2{font-size:17px;margin-bottom:12px;line-height:1.25}.chart-title-note{display:block;margin-top:3px;line-height:1.35}
+  table{font-size:11px;min-width:620px}th,td{padding:7px 6px}.panel>div:has(>table),#managementTable{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .cards{gap:10px}.card{padding:15px 16px}.kpi-value{font-size:26px}
+  .chart,#chartMonthly,#chartMonthlyFiltered,#chartPortugal,#chartYoY,#chartAreasYear,#tab-clientes #chartClientes,#tab-artigos #chartArtigos,#tab-comercial #chartVendedores,#tab-tecnico #chartTecnicos,#tab-geografia #chartAreas,#tab-geografia #chartPortugal,#tab-produto .dm-product-chart,#commercialCompareChart,#commercialFilteredChart,#commercialAreaChart,#commercialPortugalMap{height:300px!important;min-height:260px!important;padding:5px!important}
+  .commercial-calendar{display:block!important}.calendar-head{display:none!important}.calendar-day{margin-bottom:8px;min-height:72px!important}.calendar-day.out{display:none}
+  input,select,textarea{font-size:16px!important}button{min-height:40px}
+}
+@media(max-width:430px){.tab-btn{font-size:11px;padding:8px 10px}.chart,#chartMonthly,#chartMonthlyFiltered{height:270px!important}.panel{padding:12px}.auth-session{gap:6px}.theme-toggle,#logoutBtn{font-size:11px;padding:8px 9px}}
+
+/* Chat interno: botão flutuante + janela inferior, nunca menu lateral */
+.dm-chat-launcher{position:fixed;right:18px;bottom:18px;z-index:740;width:58px;height:58px;border-radius:18px;background:linear-gradient(135deg,#081a3a,#0657ff);color:#fff;box-shadow:0 14px 34px rgba(6,87,255,.34);display:grid;place-items:center;font-size:25px;border:1px solid rgba(255,255,255,.2)}
+.dm-chat-launcher:hover{transform:translateY(-2px)}.dm-chat-badge{position:absolute;right:-5px;top:-6px;min-width:21px;height:21px;padding:0 5px;border-radius:999px;background:#dc2626;color:#fff;border:2px solid #fff;display:none;place-items:center;font-size:10px;font-weight:900}.dm-chat-badge.show{display:grid}
+.dm-chat-window{position:fixed;right:18px;bottom:88px;z-index:741;width:min(760px,calc(100vw - 36px));height:min(650px,calc(100vh - 125px));background:#fff;border:1px solid var(--line);border-radius:22px;box-shadow:0 24px 70px rgba(15,23,42,.28);overflow:hidden;display:none;grid-template-columns:250px 1fr}.dm-chat-window.open{display:grid}
+.dm-chat-side{background:#f8fafc;border-right:1px solid var(--line);display:flex;flex-direction:column;min-width:0}.dm-chat-side-head{padding:16px 14px 10px}.dm-chat-side-head strong{font-size:16px}.dm-chat-side-head small{display:block;color:var(--muted);margin-top:3px}.dm-chat-search{margin-top:10px}.dm-chat-users{overflow:auto;padding:5px 8px 12px;display:grid;gap:5px}.dm-chat-user{width:100%;text-align:left;background:transparent;color:var(--ink);border:1px solid transparent;border-radius:12px;padding:9px;display:grid;grid-template-columns:38px 1fr auto;gap:9px;align-items:center;white-space:normal}.dm-chat-user:hover,.dm-chat-user.active{background:#fff;border-color:#cbd8ed}.dm-chat-avatar{width:38px;height:38px;border-radius:12px;background:linear-gradient(135deg,#dbeafe,#e0e7ff);display:grid;place-items:center;color:#1746a2;font-weight:900}.dm-chat-user-meta{min-width:0}.dm-chat-user-meta b,.dm-chat-user-meta small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dm-chat-user-meta small{color:var(--muted);font-size:10px;margin-top:2px}.dm-chat-user-unread{background:#dc2626;color:#fff;border-radius:999px;min-width:19px;height:19px;padding:0 5px;display:none;place-items:center;font-size:9px;font-weight:900}.dm-chat-user-unread.show{display:grid}
+.dm-chat-main{display:flex;flex-direction:column;min-width:0;min-height:0}.dm-chat-head{min-height:64px;padding:11px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:10px}.dm-chat-head b{display:block}.dm-chat-head small{display:block;color:var(--muted);margin-top:2px}.dm-chat-close{background:#eef2f7;color:#172033;padding:8px 10px;min-height:auto}
+.dm-chat-messages{flex:1;overflow:auto;padding:16px;background:linear-gradient(180deg,#f8fbff,#fff);display:flex;flex-direction:column;gap:9px}.dm-chat-empty{margin:auto;text-align:center;color:var(--muted);max-width:260px}.dm-chat-msg{max-width:78%;padding:9px 11px;border-radius:14px;background:#eef2f7;align-self:flex-start;box-shadow:0 2px 7px rgba(15,23,42,.05)}.dm-chat-msg.mine{align-self:flex-end;background:#e8f0ff;border:1px solid #c7d8ff}.dm-chat-msg.admin-copy{border-left:3px solid #f59e0b}.dm-chat-msg p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.4}.dm-chat-msg small{display:block;color:#64748b;font-size:9px;margin-top:5px;text-align:right}.dm-chat-compose{padding:11px;border-top:1px solid var(--line);display:grid;grid-template-columns:1fr auto;gap:8px;background:#fff}.dm-chat-compose textarea{resize:none;min-height:44px;max-height:100px;border:1px solid var(--line);border-radius:12px;padding:10px;font:inherit}.dm-chat-send{background:var(--accent);min-width:84px}.dm-chat-status{padding:5px 12px;font-size:10px;color:var(--muted);background:#fff}.dm-chat-status.error{color:#b91c1c}
+@media(max-width:650px){.dm-chat-launcher{right:12px;bottom:12px;width:54px;height:54px;border-radius:16px}.dm-chat-window{inset:0;width:100vw;height:100dvh;border-radius:0;grid-template-columns:1fr;grid-template-rows:190px 1fr}.dm-chat-side{border-right:0;border-bottom:1px solid var(--line)}.dm-chat-side-head{padding:10px}.dm-chat-users{display:flex;overflow-x:auto;overflow-y:hidden;padding:3px 8px 8px}.dm-chat-user{min-width:170px;grid-template-columns:34px 1fr auto;padding:7px}.dm-chat-avatar{width:34px;height:34px}.dm-chat-head{min-height:54px;padding:8px 10px}.dm-chat-messages{padding:10px}.dm-chat-msg{max-width:88%}.dm-chat-compose{padding:8px;grid-template-columns:1fr auto}.dm-chat-send{min-width:64px;padding:8px}.dm-chat-status{display:none}}
+</style>
+
+<script id="dmInternalChatScript">
+(function(){
+ 'use strict';
+ const $=id=>document.getElementById(id), esc=s=>String(s??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
+ const USERS={administrador:'Administrador',assistencia:'Assistência',comercial:'Comercial',rui_ferreira:'Rui Ferreira',joao_rebelo:'João Rebelo',sandro_loureiro:'Sandro Loureiro'};
+ const CHAT_USERS=Object.fromEntries(Object.entries(USERS).filter(([id])=>id!=='comercial'));
+ const TABLE='portal_chat_messages', PRIV=new Set(['administrador','assistencia']);
+ let peer='', rows=[], timer=null, loading=false;
+ const current=()=>sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||'';
+ const label=id=>USERS[id]||id||'Utilizador';
+ const cfg=()=>window.DM_SUPABASE_CONFIG||(()=>{try{return JSON.parse(localStorage.getItem('dmSupabaseConfig')||'{}')}catch(_){return {}}})();
+ function apiHeaders(write=false){const c=cfg();const h={apikey:c.key||'',Authorization:'Bearer '+(c.key||'')};if(write)h['Content-Type']='application/json';return h}
+ function initials(name){return String(name||'?').split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase()}
+ function isPriv(){return PRIV.has(current())}
+ function visible(r){const u=current();return isPriv()||r.sender_id===u||r.recipient_id===u}
+ function conversation(r,p=peer){const u=current();return (r.sender_id===u&&r.recipient_id===p)||(r.sender_id===p&&r.recipient_id===u)}
+ function ensure(){if($('dmChatLauncher'))return;
+  const launch=document.createElement('button');launch.id='dmChatLauncher';launch.className='dm-chat-launcher';launch.type='button';launch.title='Chat interno';launch.innerHTML='💬<span id="dmChatBadge" class="dm-chat-badge">0</span>';document.body.appendChild(launch);
+  const w=document.createElement('section');w.id='dmChatWindow';w.className='dm-chat-window';w.setAttribute('aria-label','Chat interno');w.innerHTML=`<aside class="dm-chat-side"><div class="dm-chat-side-head"><strong>Comunicação interna</strong><small id="dmChatRoleNote">Mensagens entre utilizadores</small><input id="dmChatSearch" class="dm-chat-search" type="search" placeholder="Procurar utilizador"></div><div id="dmChatUsers" class="dm-chat-users"></div></aside><div class="dm-chat-main"><header class="dm-chat-head"><div><b id="dmChatPeer">Selecione um utilizador</b><small id="dmChatPeerNote">Conversa interna</small></div><button id="dmChatClose" class="dm-chat-close" type="button">Fechar</button></header><div id="dmChatMessages" class="dm-chat-messages"><div class="dm-chat-empty">Selecione um utilizador para iniciar uma conversa.</div></div><div id="dmChatStatus" class="dm-chat-status">A ligar ao Supabase…</div><div class="dm-chat-compose"><textarea id="dmChatText" maxlength="2000" placeholder="Escrever mensagem…" disabled></textarea><button id="dmChatSend" class="dm-chat-send" type="button" disabled>Enviar</button></div></div>`;document.body.appendChild(w);
+  launch.onclick=()=>{w.classList.toggle('open');if(w.classList.contains('open')){renderUsers();load(true)}};$('dmChatClose').onclick=()=>w.classList.remove('open');$('dmChatSearch').oninput=renderUsers;$('dmChatSend').onclick=send;$('dmChatText').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}});
+ }
+ function setStatus(t,error=false){const el=$('dmChatStatus');if(el){el.textContent=t;el.classList.toggle('error',!!error)}}
+ function lastReadKey(p){return 'dmChatLastRead:'+current()+':'+p}
+ function unreadFor(p){const t=Number(localStorage.getItem(lastReadKey(p))||0);return rows.filter(r=>conversation(r,p)&&r.sender_id===p&&new Date(r.created_at||0).getTime()>t).length}
+ function markRead(){if(!peer)return;localStorage.setItem(lastReadKey(peer),String(Date.now()));renderUsers();renderBadge()}
+ function renderBadge(){const u=current();const total=Object.keys(CHAT_USERS).filter(x=>x!==u).reduce((n,p)=>n+unreadFor(p),0);const b=$('dmChatBadge');if(b){b.textContent=total>99?'99+':total;b.classList.toggle('show',total>0)}}
+ function renderUsers(){if(!$('dmChatUsers'))return;const u=current(),q=String($('dmChatSearch')?.value||'').toLocaleLowerCase('pt-PT');const list=Object.entries(CHAT_USERS).filter(([id,n])=>id!==u&&(!q||n.toLocaleLowerCase('pt-PT').includes(q)));$('dmChatRoleNote').textContent=isPriv()?'Perfil privilegiado · pode consultar todas as mensagens':'Só são apresentadas as suas conversas';$('dmChatUsers').innerHTML=list.map(([id,n])=>{const unread=unreadFor(id);return `<button class="dm-chat-user${peer===id?' active':''}" type="button" data-chat-peer="${esc(id)}"><span class="dm-chat-avatar">${esc(initials(n))}</span><span class="dm-chat-user-meta"><b>${esc(n)}</b><small>${id==='assistencia'||id==='administrador'?'Perfil privilegiado':'Utilizador do Portal'}</small></span><span class="dm-chat-user-unread${unread?' show':''}">${unread}</span></button>`}).join('');$('dmChatUsers').querySelectorAll('[data-chat-peer]').forEach(b=>b.onclick=()=>selectPeer(b.dataset.chatPeer))}
+ function selectPeer(id){peer=id;$('dmChatPeer').textContent=label(id);$('dmChatPeerNote').textContent='Conversa com '+label(id);$('dmChatText').disabled=false;$('dmChatSend').disabled=false;renderUsers();renderMessages();markRead();$('dmChatText').focus()}
+ function renderMessages(){const root=$('dmChatMessages');if(!root)return;if(!peer){root.innerHTML='<div class="dm-chat-empty">Selecione um utilizador para iniciar uma conversa.</div>';return}const u=current();let a=rows.filter(r=>visible(r)&&conversation(r)).sort((x,y)=>new Date(x.created_at)-new Date(y.created_at));if(!a.length){root.innerHTML='<div class="dm-chat-empty">Ainda não existem mensagens nesta conversa.</div>';return}root.innerHTML=a.map(r=>`<article class="dm-chat-msg${r.sender_id===u?' mine':''}${isPriv()&&r.sender_id!==u&&r.recipient_id!==u?' admin-copy':''}"><p>${esc(r.message)}</p><small>${esc(label(r.sender_id))} · ${new Date(r.created_at).toLocaleString('pt-PT',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</small></article>`).join('');root.scrollTop=root.scrollHeight}
+ async function load(force=false){
+  if(loading||!current())return;const c=cfg();if(!c.url||!c.key){setStatus('Supabase não configurado.',true);return}
+  loading=true;
+  try{
+    const u=current(),base=new URL(`${c.url}/rest/v1/${TABLE}`);
+    base.searchParams.set('select','id,sender_id,recipient_id,message,created_at');
+    if(!isPriv())base.searchParams.set('or',`(sender_id.eq.${u},recipient_id.eq.${u})`);
+    const newest=rows.reduce((m,r)=>{const t=new Date(r.created_at||0).getTime();return t>m?t:m},0);
+    if(newest&&!force){
+      base.searchParams.set('created_at','gt.'+new Date(newest).toISOString());
+      base.searchParams.set('order','created_at.asc');
+      base.searchParams.set('limit','250');
+    }else{
+      base.searchParams.set('order','created_at.desc');
+      base.searchParams.set('limit','1000');
+    }
+    const r=await fetch(base.href,{headers:apiHeaders()});
+    if(!r.ok){if(r.status===404||r.status===400)throw new Error('A tabela portal_chat_messages ainda não existe no Supabase.');throw new Error(await r.text())}
+    let incoming=(await r.json()).filter(visible);
+    if(!(newest&&!force))incoming.reverse();
+    const byId=new Map(rows.map(x=>[String(x.id),x]));incoming.forEach(x=>byId.set(String(x.id),x));
+    rows=[...byId.values()].sort((a,b)=>new Date(a.created_at)-new Date(b.created_at)).slice(-1000);
+    setStatus('Sincronizado · '+new Date().toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit'}));renderUsers();renderMessages();renderBadge();
+  }catch(e){setStatus(e.message||String(e),true)}finally{loading=false}
+ }
+ async function send(){const u=current(),text=String($('dmChatText')?.value||'').trim();if(!u||!peer||!text)return;const c=cfg();if(!c.url||!c.key)return setStatus('Supabase não configurado.',true);$('dmChatSend').disabled=true;try{const r=await fetch(`${c.url}/rest/v1/${TABLE}`,{method:'POST',headers:{...apiHeaders(true),Prefer:'return=representation'},body:JSON.stringify({sender_id:u,recipient_id:peer,message:text})});if(!r.ok)throw new Error(await r.text());$('dmChatText').value='';await load(false);markRead()}catch(e){setStatus('Não foi possível enviar: '+(e.message||e),true)}finally{$('dmChatSend').disabled=false}}
+ function sessionWatch(){let last='';setInterval(()=>{const u=current();if(u!==last){last=u;peer='';rows=[];if($('dmChatWindow'))$('dmChatWindow').classList.remove('open');renderUsers();renderMessages();renderBadge();if(u)load()}},900)}
+ function boot(){ensure();renderUsers();sessionWatch();timer=setInterval(()=>{if(current()&&!document.hidden)load()},10000);if(current())setTimeout(()=>load(),700)}
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
+})();
+</script>
+
+<!-- DM Egress Optimization v3: IndexedDB sales cache; sales 10min visible-only; visits throttled; campaigns 5min; chat incremental/server-filtered. -->
 </body>
 </html>

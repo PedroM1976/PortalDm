@@ -5988,5 +5988,93 @@ window.dmRefreshDailyReport=()=>{populateYears();render()};
 </script>
 
 <!-- DM Egress Optimization v3: IndexedDB sales cache; sales 10min visible-only; visits throttled; campaigns 5min; chat incremental/server-filtered. -->
+
+<!-- DM: ocultar margens APENAS para Rui Ferreira, João Rebelo e Sandro Loureiro -->
+<style id="dmNamedSellerMarginPrivacyStyles">
+body.dm-margin-restricted #kpiMargem,
+body.dm-margin-restricted #kpiMargemPct,
+body.dm-margin-restricted #techKpiMargem,
+body.dm-margin-restricted #mgMargin,
+body.dm-margin-restricted #mgMarginPct,
+body.dm-margin-restricted #dmMonthMargem,
+body.dm-margin-restricted #dmWeekMargem{visibility:hidden!important}
+body.dm-margin-restricted [data-k="margem"],
+body.dm-margin-restricted [data-k="margemp"]{display:none!important}
+</style>
+<script id="dmNamedSellerMarginPrivacyScript">
+(function(){
+  'use strict';
+  const RESTRICTED=new Set(['rui_ferreira','joao_rebelo','sandro_loureiro']);
+  const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
+  const current=()=>sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||'';
+  const isRestricted=()=>RESTRICTED.has(current());
+  const marginText=el=>norm(el?.textContent||'').includes('margem')||norm(el?.textContent||'').includes('rentabilidade');
+
+  function markHide(el){
+    if(!el||el===document.body||el===document.documentElement)return;
+    if(!el.hasAttribute('data-dm-margin-hidden')){
+      el.setAttribute('data-dm-margin-hidden','1');
+      el.setAttribute('data-dm-margin-prev-display',el.style.display||'');
+    }
+    el.style.setProperty('display','none','important');
+  }
+  function restore(){
+    document.querySelectorAll('[data-dm-margin-hidden="1"]').forEach(el=>{
+      const prev=el.getAttribute('data-dm-margin-prev-display')||'';
+      el.style.removeProperty('display');
+      if(prev)el.style.display=prev;
+      el.removeAttribute('data-dm-margin-hidden');
+      el.removeAttribute('data-dm-margin-prev-display');
+    });
+  }
+  function hideCardForId(id){
+    const el=document.getElementById(id);if(!el)return;
+    const box=el.closest('.card,.detail-kpi,.tech-kpi,.weekly-report-kpi,.dm-period-kpi,.dm-daily-kpi,.kpi,.dm-mgmt-card,.dm-period-detail-card,.filter');
+    markHide(box||el);
+  }
+  function hideMarginColumns(table){
+    if(!table||!table.rows||!table.rows.length)return;
+    const header=table.tHead?.rows?.[0]||table.rows[0];if(!header)return;
+    const idx=[];
+    [...header.cells].forEach((cell,i)=>{if(marginText(cell))idx.push(i)});
+    if(!idx.length)return;
+    [...table.rows].forEach(row=>idx.forEach(i=>{if(row.cells[i])markHide(row.cells[i])}));
+  }
+  function apply(){
+    const restricted=isRestricted();
+    document.body?.classList.toggle('dm-margin-restricted',restricted);
+    if(!restricted){restore();return}
+
+    ['kpiMargem','kpiMargemPct','techKpiMargem','mgMargin','mgMarginPct','dmMonthMargem','dmWeekMargem'].forEach(hideCardForId);
+    ['tableMargemClientes','tableMargemArtigos','chartMargemFornecedor'].forEach(id=>{
+      const el=document.getElementById(id);if(el)markHide(el.closest('.panel')||el);
+    });
+
+    document.querySelectorAll('.panel,.dm-mgmt-panel,.weekly-report-section').forEach(el=>{
+      const title=el.querySelector(':scope > h2,:scope > h3');
+      if(title&&marginText(title))markHide(el);
+    });
+    document.querySelectorAll('.card,.detail-kpi,.tech-kpi,.weekly-report-kpi,.dm-period-kpi,.dm-daily-kpi,.kpi,.dm-mgmt-card,.dm-period-detail-card,.dm-cross-item').forEach(el=>{
+      const label=el.querySelector('.kpi-label,.dm-mgmt-klabel,span,h3,h2,b');
+      if(label&&marginText(label))markHide(el);
+    });
+    document.querySelectorAll('p,.dm-mgmt-insight,.smallnote').forEach(el=>{
+      const t=norm(el.textContent);
+      if(t.startsWith('margem:')||t.startsWith('rentabilidade:')||t.startsWith('margens:')||t.includes(' rentabilidade:')||t.includes(' margem:'))markHide(el);
+    });
+    document.querySelectorAll('table').forEach(hideMarginColumns);
+  }
+
+  let scheduled=false;
+  function schedule(){if(scheduled)return;scheduled=true;requestAnimationFrame(()=>{scheduled=false;apply()})}
+  const observer=new MutationObserver(schedule);
+  function start(){
+    apply();
+    observer.observe(document.documentElement,{childList:true,subtree:true,characterData:true});
+    setInterval(()=>{const u=current();if(window.__dmMarginPrivacyUser!==u){window.__dmMarginPrivacyUser=u;apply()}},300);
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
+})();
+</script>
 </body>
 </html>

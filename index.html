@@ -1902,12 +1902,51 @@ h1{font-size:24px}
 
 <style id="dmKpiPeriodVisibilityFix">
 /* KPIs mensal/semanal são indicadores leves e ficam sempre disponíveis; os gráficos continuam lazy. */
-#dmMonthStrip,#dmWeekStrip{display:block!important}
-#dmMonthStrip:not(.visible),#dmWeekStrip:not(.visible){opacity:.72}
+#dmMonthStrip,#dmWeekStrip,#dmDayStrip{display:block!important}
+#dmMonthStrip:not(.visible),#dmWeekStrip:not(.visible),#dmDayStrip:not(.visible){opacity:.72}
 </style>
 
 
 
+
+
+<!-- DM_REFRESH_POSITION_NO_CHAT_20260821 -->
+<style id="dmRefreshPositionNoChat20260821">
+/* Evita conflito com o botão do chat no canto inferior direito.
+   O atalho de atualização fica fixo na lateral direita, abaixo do botão de menu. */
+#dmFloatingReloadBtn{
+  right:16px!important;
+  left:auto!important;
+  top:calc(50% + 74px)!important;
+  bottom:auto!important;
+  transform:none!important;
+}
+#dmFloatingReloadBtn:hover{transform:translateX(-2px)!important}
+#dmFloatingReloadBtn:active{transform:none!important}
+@media(max-width:700px){
+  #dmFloatingReloadBtn{right:9px!important;top:calc(50% + 66px)!important;bottom:auto!important}
+}
+</style>
+
+<!-- DM_REFRESH_SAFE_POSITION_20260821 -->
+<style id="dmRefreshSafePosition20260821">
+/* Atualizar fica no topo direito: separado do chat (fundo direito) e do menu lateral (meio direito). */
+#dmFloatingReloadBtn{
+  top:92px!important;
+  right:18px!important;
+  bottom:auto!important;
+  left:auto!important;
+  z-index:120000!important;
+}
+@media(max-width:700px){
+  #dmFloatingReloadBtn{
+    top:72px!important;
+    right:10px!important;
+    bottom:auto!important;
+    min-width:124px!important;
+  }
+}
+</style>
 
 </body></html>`);
     win.document.close();
@@ -4671,7 +4710,7 @@ function periodBaseRows(){
   }
 }
 function ensurePeriodStrips(){
-  if(G('dmMonthStrip')&&G('dmWeekStrip'))return;
+  if(G('dmMonthStrip')&&G('dmWeekStrip')&&G('dmDayStrip'))return;
   const cards=document.querySelector('section.cards');
   if(!cards)return;
 
@@ -4690,6 +4729,16 @@ function ensurePeriodStrips(){
     week.innerHTML='<div class="dm-period-head"><strong id="dmWeekTitle">Semana atual</strong><span>Clique num indicador para abrir o relatório semanal</span></div><div class="dm-period-kpis"><button class="dm-period-kpi" data-period="week"><span>Vendas sem IVA</span><b id="dmWeekSem">€0</b></button><button class="dm-period-kpi" data-period="week"><span>Vendas com IVA</span><b id="dmWeekCom">€0</b></button><button class="dm-period-kpi" data-period="week"><span>Margem</span><b id="dmWeekMargem">0%</b></button><button class="dm-period-kpi" data-period="week"><span>Total de clientes</span><b id="dmWeekClientes">0</b></button></div>';
     cards.parentNode.insertBefore(week,cards);
     week.querySelectorAll('button').forEach(b=>b.onclick=openWeeklyReport);
+  }
+
+  if(!G('dmDayStrip')){
+    const day=document.createElement('section');
+    day.id='dmDayStrip';
+    day.className='dm-period-strip dm-day-strip';
+    day.innerHTML='<div class="dm-period-head"><strong id="dmDayTitle">Dia atual</strong><span>Clique num indicador para abrir o relatório diário</span></div><div class="dm-period-kpis"><button class="dm-period-kpi" data-period="day"><span>Vendas sem IVA</span><b id="dmDaySem">€0</b></button><button class="dm-period-kpi" data-period="day"><span>Vendas com IVA</span><b id="dmDayCom">€0</b></button><button class="dm-period-kpi" data-period="day"><span>Margem</span><b id="dmDayMargem">0%</b></button><button class="dm-period-kpi" data-period="day"><span>Total de clientes</span><b id="dmDayClientes">0</b></button></div>';
+    const cardsNow=document.querySelector('section.cards');
+    cardsNow.parentNode.insertBefore(day,cardsNow);
+    day.querySelectorAll('button').forEach(b=>b.onclick=openDailyReport);
   }
 }
 function latestMonthRef(){
@@ -4714,11 +4763,21 @@ function currentMonthRows(){
   const ref=latestMonthRef(),base=periodBaseRows()||[];
   return base.filter(r=>Number(r.ano)===ref.year&&Number(r.mes)===ref.month);
 }
+function latestDayRef(){
+  const base=periodBaseRows()||[];
+  const dates=base.map(r=>String(r.data_venda||'').slice(0,10)).filter(x=>/^\d{4}-\d{2}-\d{2}$/.test(x)).sort().reverse();
+  if(dates.length)return dates[0];
+  const n=new Date();return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');
+}
+function currentDayRows(){
+  const ref=latestDayRef(),base=periodBaseRows()||[];
+  return base.filter(r=>String(r.data_venda||'').slice(0,10)===ref);
+}
 function renderWeekly(){
   ensurePeriodStrips();
   const monthRef=latestMonthRef(),weekRef=latestWeekRef();
-  const monthRows=currentMonthRows(),weekRows=currentWeekRows();
-  const monthBox=G('dmMonthStrip'),weekBox=G('dmWeekStrip');
+  const monthRows=currentMonthRows(),weekRows=currentWeekRows(),dayRows=currentDayRows(),dayRef=latestDayRef();
+  const monthBox=G('dmMonthStrip'),weekBox=G('dmWeekStrip'),dayBox=G('dmDayStrip');
 
   if(monthBox){
     monthBox.classList.add('visible');
@@ -4739,6 +4798,21 @@ function renderWeekly(){
     G('dmWeekMargem').textContent=weekRows.length?pct(marginPct(weekRows)):'ND';
     G('dmWeekClientes').textContent=number(new Set(weekRows.map(r=>r.cliente).filter(Boolean)).size);
   }
+  if(dayBox){
+    dayBox.classList.add('visible');
+    const d=new Date(dayRef+'T12:00:00');
+    G('dmDayTitle').textContent='Dia '+new Intl.DateTimeFormat('pt-PT',{day:'2-digit',month:'long',year:'numeric'}).format(d);
+    G('dmDaySem').textContent=money(dayRows.reduce((a,r)=>a+(Number(r.valor_liquido)||0),0));
+    G('dmDayCom').textContent=money(dayRows.reduce((a,r)=>a+(Number(r.valor_total)||0),0));
+    G('dmDayMargem').textContent=dayRows.length?pct(marginPct(dayRows)):'ND';
+    G('dmDayClientes').textContent=number(new Set(dayRows.map(r=>r.cliente).filter(Boolean)).size);
+  }
+}
+function openDailyReport(){
+  const btn=document.querySelector('[data-tab="tab-daily-report"]');
+  if(btn){btn.click();return}
+  const panel=G('tab-daily-report');
+  if(panel){document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p===panel));panel.scrollIntoView({behavior:'smooth'})}
 }
 function openWeeklyReport(){
   const iw=latestWeekRef();
@@ -6898,5 +6972,563 @@ document.addEventListener('click',e=>{if(e.target.closest('.tab-btn'))setTimeout
 })();
 </script>
 
+<style id="dm20260821KpiDrillCampaignMenuStyles">
+#dmKpiPeriodBackdrop{z-index:1205000}
+#dmKpiPeriodDrawer{z-index:1205100;width:min(680px,96vw)}
+.dm-kpi-period-actions{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 18px}
+.dm-kpi-period-actions button{background:var(--accent);color:#fff}
+.dm-kpi-period-days{display:grid;gap:8px;margin-top:8px}
+.dm-kpi-period-day{display:grid;grid-template-columns:minmax(130px,1fr) auto auto;gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:#f8fafc;font-size:12px}
+.dm-kpi-period-day b{color:#0b1533}.dm-kpi-period-day span{font-weight:900;font-variant-numeric:tabular-nums}.dm-kpi-period-day small{color:var(--muted);font-weight:800}
+.dm-kpi-period-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:16px}.dm-kpi-period-box{border:1px solid var(--line);border-radius:14px;padding:13px;background:#fff}.dm-kpi-period-box h3{font-size:14px;margin:0 0 9px}.dm-kpi-period-mini{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid #edf2f7;padding:7px 0;font-size:12px}.dm-kpi-period-mini:last-child{border-bottom:0}.dm-kpi-period-mini span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dm-kpi-period-mini b{white-space:nowrap}
+#dmCampaignHome{overflow:visible}
+.dm-campaign-ham-wrap{position:absolute;right:18px;top:16px;z-index:8}
+.dm-campaign-ham{width:42px;height:42px;padding:0!important;border-radius:12px!important;background:rgba(4,15,38,.64)!important;color:#fff!important;border:1px solid rgba(255,255,255,.35)!important;font-size:22px!important;display:grid!important;place-items:center;backdrop-filter:blur(8px);box-shadow:0 8px 20px rgba(0,0,0,.18)}
+.dm-campaign-ham-menu{position:absolute;right:0;top:48px;width:210px;background:#fff;color:#0b1533;border:1px solid #dbe3ef;border-radius:12px;padding:7px;box-shadow:0 16px 38px rgba(15,23,42,.22);display:none}
+.dm-campaign-ham-wrap.open .dm-campaign-ham-menu{display:grid;gap:4px}.dm-campaign-ham-menu button{width:100%;background:#fff;color:#0b1533;border:0;text-align:left;padding:10px 11px;border-radius:8px;font-size:12px}.dm-campaign-ham-menu button:hover{background:#eaf1ff;color:#0348d5}
+@media(max-width:650px){#dmKpiPeriodDrawer{width:100vw}.dm-kpi-period-day{grid-template-columns:1fr auto}.dm-kpi-period-day small{grid-column:1/-1}.dm-kpi-period-grid{grid-template-columns:1fr}.dm-campaign-ham-wrap{right:10px;top:10px}}
+</style>
+<script id="dm20260821KpiDrillCampaignMenuScript">
+(function(){
+'use strict';
+const $=id=>document.getElementById(id);
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money=v=>new Intl.NumberFormat('pt-PT',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(Number(v)||0);
+const num=v=>new Intl.NumberFormat('pt-PT',{maximumFractionDigits:0}).format(Number(v)||0);
+const weekNo=v=>{const m=String(v||'').match(/(?:SEMANA|SEM|S|WEEK)?\s*[-:]?\s*(\d{1,2})(?!\d)/i);return m?Number(m[1]):0};
+function visibleRows(){try{const all=Array.isArray(window.DATA)?window.DATA:(typeof DATA!=='undefined'&&Array.isArray(DATA)?DATA:[]);return typeof window.roleVisibleRows==='function'?window.roleVisibleRows(all):(typeof roleVisibleRows==='function'?roleVisibleRows(all):all)}catch(_){return []}}
+function refs(){
+ const wt=String($('dmWeekTitle')?.textContent||''),dt=String($('dmDayTitle')?.textContent||'');
+ const wm=wt.match(/Semana\s+(\d{1,2})\s+de\s+(20\d{2})/i);
+ const dayRows=visibleRows().map(r=>String(r.data_venda||'').slice(0,10)).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)).sort().reverse();
+ let day=dayRows[0]||'';
+ if(dt){const dm=dt.match(/(\d{2})\s+de\s+([^\s]+)\s+de\s+(20\d{2})/i);if(dm){const names=['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];const mi=names.indexOf(dm[2].toLowerCase());if(mi>=0)day=dm[3]+'-'+String(mi+1).padStart(2,'0')+'-'+dm[1]}}
+ return {year:wm?Number(wm[2]):0,week:wm?Number(wm[1]):0,day};
+}
+function rowsFor(kind){const r=refs(),all=visibleRows();return kind==='week'?all.filter(x=>Number(x.ano)===r.year&&weekNo(x.semana)===r.week):all.filter(x=>String(x.data_venda||'').slice(0,10)===r.day)}
+function group(rows,key,limit=8){const m=new Map();rows.forEach(r=>{const n=String(r[key]||'Sem indicação').trim()||'Sem indicação';m.set(n,(m.get(n)||0)+(Number(r.valor_liquido)||0))});return [...m.entries()].sort((a,b)=>b[1]-a[1]).slice(0,limit)}
+function ensureDrawer(){
+ let bg=$('dmKpiPeriodBackdrop'),dr=$('dmKpiPeriodDrawer');
+ if(!bg){bg=document.createElement('div');bg.id='dmKpiPeriodBackdrop';bg.className='drawer-backdrop';document.body.appendChild(bg)}
+ if(!dr){dr=document.createElement('aside');dr.id='dmKpiPeriodDrawer';dr.className='drawer';dr.setAttribute('aria-hidden','true');dr.innerHTML='<div class="drawer-head"><div><div id="dmKpiPeriodTitle" class="drawer-title"></div><div id="dmKpiPeriodSub" class="drawer-sub"></div></div><button id="dmKpiPeriodClose" class="drawer-close" type="button">Fechar</button></div><div id="dmKpiPeriodBody" class="drawer-body"></div>';document.body.appendChild(dr);$('dmKpiPeriodClose').onclick=closeDrawer;bg.onclick=closeDrawer}
+ return {bg,dr};
+}
+function closeDrawer(){const bg=$('dmKpiPeriodBackdrop'),dr=$('dmKpiPeriodDrawer');bg?.classList.remove('open');dr?.classList.remove('open');dr?.setAttribute('aria-hidden','true')}
+function dailyBreakdown(rows){const m=new Map();rows.forEach(r=>{const d=String(r.data_venda||'').slice(0,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(d))return;if(!m.has(d))m.set(d,{net:0,clients:new Set()});const x=m.get(d);x.net+=Number(r.valor_liquido)||0;if(r.cliente)x.clients.add(r.cliente)});return [...m.entries()].sort((a,b)=>a[0].localeCompare(b[0]))}
+function miniList(title,items){return '<div class="dm-kpi-period-box"><h3>'+esc(title)+'</h3>'+(items.length?items.map(([n,v])=>'<div class="dm-kpi-period-mini"><span title="'+esc(n)+'">'+esc(n)+'</span><b>'+money(v)+'</b></div>').join(''):'<div class="smallnote">Sem dados.</div>')+'</div>'}
+function openDrawer(kind){
+ const {bg,dr}=ensureDrawer(),r=refs(),rows=rowsFor(kind),net=rows.reduce((a,x)=>a+(Number(x.valor_liquido)||0),0),total=rows.reduce((a,x)=>a+(Number(x.valor_total)||0),0),margin=rows.reduce((a,x)=>a+(Number(x.margem)||0),0),clients=new Set(rows.map(x=>x.cliente).filter(Boolean)).size;
+ const isWeek=kind==='week';
+ $('dmKpiPeriodTitle').textContent=isWeek?('Semana '+r.week+' de '+r.year):('Dia '+(r.day?new Date(r.day+'T12:00:00').toLocaleDateString('pt-PT',{day:'2-digit',month:'long',year:'numeric'}):''));
+ $('dmKpiPeriodSub').textContent=isWeek?'Detalhe semanal · clique no botão para abrir o relatório desta semana':'Detalhe diário · clique no botão para abrir o relatório deste dia';
+ let days='';if(isWeek){const list=dailyBreakdown(rows);days='<div class="dm-period-detail-section"><h3>Dados dos dias da semana</h3><div class="dm-kpi-period-days">'+(list.length?list.map(([d,x])=>'<div class="dm-kpi-period-day"><b>'+esc(new Date(d+'T12:00:00').toLocaleDateString('pt-PT',{weekday:'short',day:'2-digit',month:'2-digit'}))+'</b><span>'+money(x.net)+'</span><small>'+num(x.clients.size)+' clientes</small></div>').join(''):'<div class="empty">Sem datas diárias nesta semana.</div>')+'</div></div>'}
+ $('dmKpiPeriodBody').innerHTML='<div class="dm-kpi-period-actions"><button id="dmGoPeriodReport" type="button">'+(isWeek?'Ir para relatório semanal':'Ir para relatório diário')+'</button></div><div class="dm-period-detail-summary"><div class="dm-period-detail-card"><span>Vendas sem IVA</span><strong>'+money(net)+'</strong></div><div class="dm-period-detail-card"><span>Vendas com IVA</span><strong>'+money(total)+'</strong></div><div class="dm-period-detail-card"><span>Margem</span><strong>'+money(margin)+'</strong></div><div class="dm-period-detail-card"><span>Clientes</span><strong>'+num(clients)+'</strong></div></div>'+days+'<div class="dm-kpi-period-grid">'+miniList('Top clientes',group(rows,'cliente'))+miniList('Vendas por vendedor',group(rows,'vendedor'))+miniList('Vendas por área',group(rows,'area'))+miniList('Top artigos',group(rows,'artigo_desc'))+'</div>';
+ $('dmGoPeriodReport').onclick=()=>{closeDrawer();isWeek?goWeekly(r.year,r.week):goDaily(r.day)};
+ bg.classList.add('open');dr.classList.add('open');dr.setAttribute('aria-hidden','false');
+}
+function activateTab(id){let b=document.querySelector('.tab-btn[data-tab="'+id+'"]');if(b){b.click();return true}const p=$(id);if(p){document.querySelectorAll('.tab-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===id));document.querySelectorAll('.tab-panel').forEach(x=>x.classList.toggle('active',x===p));return true}return false}
+function weekOption(sel,year,week){if(!sel)return null;let fallback=null;for(const o of [...sel.options]){const t=String((o.value||'')+' '+(o.textContent||''));const ys=[...t.matchAll(/\b(20\d{2})\b/g)].map(m=>Number(m[1]));const w=weekNo(t);if(w!==Number(week))continue;if(ys.includes(Number(year)))return o;if(!fallback)fallback=o}return fallback}
+function goWeekly(year,week){
+ activateTab('tab-weekly-report');
+ const apply=()=>{const type=$('reportType'),sel=$('reportWeekPrimary');if(type){type.value='weekly';type.dispatchEvent(new Event('change',{bubbles:true}))}const op=weekOption(sel,year,week);if(op){sel.value=op.value;sel.dispatchEvent(new Event('change',{bubbles:true}));setTimeout(()=>$('reportPreview')?.scrollIntoView({behavior:'smooth',block:'start'}),80);return true}return false};
+ if(!apply()){setTimeout(apply,120);setTimeout(apply,350)}
+}
+function goDaily(day){
+ if(!day)return;activateTab('tab-daily-report');
+ const apply=()=>{const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(day),y=$('dmDailyYear'),mo=$('dmDailyMonth'),d=$('dmDailyDate');if(!m||!y||!mo||!d)return false;y.value=m[1];y.dispatchEvent(new Event('change',{bubbles:true}));mo.value=String(Number(m[2]));if(![...mo.options].some(o=>o.value===mo.value))mo.value=m[2];mo.dispatchEvent(new Event('change',{bubbles:true}));setTimeout(()=>{if([...d.options].some(o=>o.value===day)){d.value=day;d.dispatchEvent(new Event('change',{bubbles:true}));setTimeout(()=>$('dmDailyKpis')?.scrollIntoView({behavior:'smooth',block:'start'}),80)}},20);return true};
+ if(!apply()){setTimeout(apply,120);setTimeout(apply,350)}
+}
+function enforceOrder(){const week=$('dmWeekStrip'),day=$('dmDayStrip');if(week&&day&&week.nextElementSibling!==day)week.insertAdjacentElement('afterend',day)}
+// Captura o clique antes dos handlers antigos: Semana/Dia abrem sempre primeiro o drawer lateral.
+document.addEventListener('click',e=>{const k=e.target.closest?.('#dmWeekStrip [data-period="week"],#dmWeekStrip .dm-week-kpi,#dmDayStrip [data-period="day"]');if(!k)return;e.preventDefault();e.stopImmediatePropagation();openDrawer(k.closest('#dmDayStrip')?'day':'week')},true);
+function ensureCampaignMenu(){
+ const root=$('dmCampaignHome');if(!root||!root.classList.contains('show'))return;if(root.querySelector('.dm-campaign-ham-wrap'))return;
+ const wrap=document.createElement('div');wrap.className='dm-campaign-ham-wrap';wrap.innerHTML='<button class="dm-campaign-ham" type="button" aria-label="Menu de campanhas" aria-expanded="false">☰</button><div class="dm-campaign-ham-menu"><button type="button" data-cm="all">Ver todas as campanhas</button><button type="button" data-cm="prev">Campanha anterior</button><button type="button" data-cm="next">Campanha seguinte</button></div>';root.appendChild(wrap);
+ const ham=wrap.querySelector('.dm-campaign-ham');ham.onclick=e=>{e.stopPropagation();wrap.classList.toggle('open');ham.setAttribute('aria-expanded',wrap.classList.contains('open')?'true':'false')};
+ wrap.querySelector('[data-cm="all"]').onclick=()=>{wrap.classList.remove('open');const open=root.querySelector('[data-open-campaigns]');if(open)open.click();else document.querySelector('.tab-btn[data-tab="tab-campanhas"]')?.click()};
+ wrap.querySelector('[data-cm="prev"]').onclick=()=>{wrap.classList.remove('open');root.querySelector('[data-banner-prev]')?.click()};
+ wrap.querySelector('[data-cm="next"]').onclick=()=>{wrap.classList.remove('open');root.querySelector('[data-banner-next]')?.click()};
+}
+document.addEventListener('click',e=>{if(!e.target.closest?.('.dm-campaign-ham-wrap'))document.querySelectorAll('.dm-campaign-ham-wrap.open').forEach(x=>x.classList.remove('open'))});
+function refresh(){enforceOrder();ensureCampaignMenu()}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',refresh);else refresh();
+new MutationObserver(refresh).observe(document.documentElement,{childList:true,subtree:true});
+window.addEventListener('dm:data-ready',refresh);
+window.dmOpenKpiPeriodDrawer=openDrawer;window.dmGoWeeklyReport=goWeekly;window.dmGoDailyReport=goDaily;
+})();
+</script>
+
+
+
+<!-- DM_20260821_KPI_CAMPAIGN_FIX_V2 -->
+<style id="dm20260821KpiCampaignFixV2Styles">
+/* Redução ligeira dos 8 KPI principais, mantendo a leitura confortável. */
+section.cards{gap:14px!important;margin-bottom:18px!important}
+section.cards .card{padding:16px 19px!important;border-radius:17px!important}
+section.cards .card:before{width:82px!important;height:82px!important;right:-23px!important;top:-23px!important}
+section.cards .kpi-label{font-size:13px!important}
+section.cards .kpi-value{font-size:28px!important;margin-top:5px!important}
+section.cards .kpi-note{font-size:11px!important;margin-top:4px!important}
+
+/* KPI mensal / semanal / diário um pouco mais compactos. */
+.dm-period-strip{padding:7px 9px!important;margin-bottom:7px!important}
+.dm-period-head{margin-bottom:5px!important}
+.dm-period-kpis{gap:6px!important}
+.dm-period-kpi{padding:6px 9px!important;min-height:44px!important}
+.dm-period-kpi b{font-size:14px!important}
+
+/* Menu de campanhas: fechado por defeito e acima de qualquer camada do banner. */
+.dm-campaign-ham-wrap{z-index:30!important}
+.dm-campaign-ham-menu{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important;transform:translateY(-4px);transition:opacity .14s ease,transform .14s ease}
+.dm-campaign-ham-wrap.open .dm-campaign-ham-menu{display:grid!important;visibility:visible!important;opacity:1!important;pointer-events:auto!important;transform:none}
+.dm-campaign-ham{position:relative;z-index:31!important;pointer-events:auto!important}
+@media(max-width:760px){section.cards .kpi-value{font-size:26px!important}}
+</style>
+<script id="dm20260821KpiCampaignFixV2Script">
+(function(){
+'use strict';
+const $=id=>document.getElementById(id);
+
+/* Recalcula os KPI de período em rajadas curtas. Isto cobre: login, troca de utilizador,
+   DATA já em memória e carregamentos Supabase que terminem alguns ms depois. */
+function refreshPeriodKpis(){
+  try{ window.dmEnsurePeriodStrips?.(); }catch(_){}
+  try{ window.dmRenderPeriodKpis?.(); }catch(_){}
+  try{
+    const w=$('dmWeekStrip'),d=$('dmDayStrip');
+    if(w&&d&&w.nextElementSibling!==d)w.insertAdjacentElement('afterend',d);
+  }catch(_){}
+}
+function burstPeriodKpis(){
+  refreshPeriodKpis();
+  requestAnimationFrame(refreshPeriodKpis);
+  [35,90,180,350,700,1300,2200].forEach(ms=>setTimeout(refreshPeriodKpis,ms));
+}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',burstPeriodKpis,{once:true});else burstPeriodKpis();
+window.addEventListener('dm:data-ready',burstPeriodKpis);
+window.addEventListener('focus',refreshPeriodKpis);
+document.addEventListener('click',e=>{
+  if(e.target?.closest?.('#authSubmit'))setTimeout(burstPeriodKpis,15);
+  if(e.target?.closest?.('#authLogout'))setTimeout(refreshPeriodKpis,20);
+},true);
+document.addEventListener('change',e=>{
+  if(e.target?.closest?.('#authRole'))setTimeout(burstPeriodKpis,20);
+},true);
+
+/* Se DATA for substituído sem evento próprio, deteta apenas durante os primeiros segundos. */
+let tries=0,lastSig='';
+const shortWatch=setInterval(()=>{
+  tries++;
+  try{
+    const arr=(typeof DATA!=='undefined'&&Array.isArray(DATA))?DATA:[];
+    const user=sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||'';
+    const sig=user+'|'+arr.length+'|'+(arr.length?String(arr[arr.length-1]?.data_venda||arr[arr.length-1]?.semana||''):'');
+    if(sig!==lastSig){lastSig=sig;burstPeriodKpis()}
+  }catch(_){}
+  if(tries>=20)clearInterval(shortWatch);
+},250);
+
+/* Hambúrguer do banner: listener delegado, para continuar a funcionar quando renderBanner()
+   substitui todo o conteúdo do banner. */
+function closeCampaignMenus(except){
+  document.querySelectorAll('.dm-campaign-ham-wrap.open').forEach(w=>{
+    if(w===except)return;
+    w.classList.remove('open');
+    w.querySelector('.dm-campaign-ham')?.setAttribute('aria-expanded','false');
+  });
+}
+document.addEventListener('click',e=>{
+  const ham=e.target.closest?.('.dm-campaign-ham');
+  if(ham){
+    e.preventDefault();e.stopPropagation();
+    const wrap=ham.closest('.dm-campaign-ham-wrap');
+    if(!wrap)return;
+    const opening=!wrap.classList.contains('open');
+    closeCampaignMenus(wrap);
+    wrap.classList.toggle('open',opening);
+    ham.setAttribute('aria-expanded',opening?'true':'false');
+    return;
+  }
+  const item=e.target.closest?.('.dm-campaign-ham-menu [data-cm]');
+  if(item){
+    e.preventDefault();e.stopPropagation();
+    const wrap=item.closest('.dm-campaign-ham-wrap');
+    const root=item.closest('#dmCampaignHome');
+    const action=item.dataset.cm;
+    wrap?.classList.remove('open');
+    wrap?.querySelector('.dm-campaign-ham')?.setAttribute('aria-expanded','false');
+    if(action==='all'){
+      const tab=document.querySelector('.tab-btn[data-tab="tab-campanhas"]');
+      if(tab)tab.click();
+      setTimeout(()=>$('tab-campanhas')?.scrollIntoView({behavior:'smooth',block:'start'}),50);
+    }else if(action==='prev'){
+      root?.querySelector('[data-banner-prev]')?.click();
+    }else if(action==='next'){
+      root?.querySelector('[data-banner-next]')?.click();
+    }
+    return;
+  }
+  if(!e.target.closest?.('.dm-campaign-ham-wrap'))closeCampaignMenus();
+},true);
+
+/* Fecha sempre o menu ao voltar a desenhar/mostrar o banner. */
+const campaignObs=new MutationObserver(()=>{
+  const root=$('dmCampaignHome');
+  if(!root)return;
+  root.querySelectorAll('.dm-campaign-ham-wrap').forEach(w=>{
+    if(!w.matches(':hover')){
+      w.classList.remove('open');
+      w.querySelector('.dm-campaign-ham')?.setAttribute('aria-expanded','false');
+    }
+  });
+});
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{const r=$('dmCampaignHome');if(r)campaignObs.observe(r,{childList:true,subtree:true})},{once:true});
+else{const r=$('dmCampaignHome');if(r)campaignObs.observe(r,{childList:true,subtree:true})}
+})();
+</script>
+
+
+
+<!-- DM_20260821_CAMPAIGN_HAMBURGER_FIX_V3 -->
+<style id="dmCampaignHamburgerFixV3Styles">
+/* Estado inequívoco: o menu nasce e permanece fechado até clique no botão. */
+#dmCampaignHome .dm-campaign-ham-menu[hidden]{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important}
+#dmCampaignHome .dm-campaign-ham-menu:not([hidden]){display:grid!important;visibility:visible!important;opacity:1!important;pointer-events:auto!important;gap:4px!important}
+#dmCampaignHome .dm-campaign-ham-wrap{z-index:80!important}
+#dmCampaignHome .dm-campaign-ham{z-index:81!important;pointer-events:auto!important}
+</style>
+<script id="dmCampaignHamburgerFixV3Script">
+(function(){
+'use strict';
+const $=id=>document.getElementById(id);
+function closeMenu(wrap){
+  if(!wrap)return;
+  const menu=wrap.querySelector('.dm-campaign-ham-menu');
+  const ham=wrap.querySelector('.dm-campaign-ham');
+  if(menu)menu.hidden=true;
+  wrap.classList.remove('open');
+  ham?.setAttribute('aria-expanded','false');
+}
+function bindMenu(){
+  const root=$('dmCampaignHome');
+  if(!root||!root.classList.contains('show'))return;
+  let wrap=root.querySelector('.dm-campaign-ham-wrap');
+  if(!wrap){
+    wrap=document.createElement('div');
+    wrap.className='dm-campaign-ham-wrap';
+    wrap.innerHTML='<button class="dm-campaign-ham" type="button" aria-label="Menu de campanhas" aria-expanded="false">☰</button><div class="dm-campaign-ham-menu" hidden><button type="button" data-cm="all">Ver todas as campanhas</button><button type="button" data-cm="prev">Campanha anterior</button><button type="button" data-cm="next">Campanha seguinte</button></div>';
+    root.appendChild(wrap);
+  }
+  if(wrap.dataset.dmV3==='1')return;
+  /* Clona o bloco para eliminar onclick/listeners antigos que estavam a fazer toggle duplo. */
+  const clean=wrap.cloneNode(true);
+  wrap.replaceWith(clean);
+  wrap=clean;
+  wrap.dataset.dmV3='1';
+  const ham=wrap.querySelector('.dm-campaign-ham');
+  const menu=wrap.querySelector('.dm-campaign-ham-menu');
+  closeMenu(wrap);
+
+  ham.addEventListener('click',function(e){
+    e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
+    const willOpen=menu.hidden;
+    document.querySelectorAll('#dmCampaignHome .dm-campaign-ham-wrap').forEach(x=>{if(x!==wrap)closeMenu(x)});
+    menu.hidden=!willOpen;
+    wrap.classList.toggle('open',willOpen);
+    ham.setAttribute('aria-expanded',willOpen?'true':'false');
+  },false);
+
+  menu.addEventListener('click',function(e){
+    const item=e.target.closest('[data-cm]');
+    if(!item)return;
+    e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
+    const action=item.dataset.cm;
+    closeMenu(wrap);
+    if(action==='all'){
+      document.querySelector('.tab-btn[data-tab="tab-campanhas"]')?.click();
+      setTimeout(()=>$('tab-campanhas')?.scrollIntoView({behavior:'smooth',block:'start'}),60);
+    }else if(action==='prev') root.querySelector('[data-banner-prev]')?.click();
+    else if(action==='next') root.querySelector('[data-banner-next]')?.click();
+  },false);
+}
+function boot(){bindMenu();const root=$('dmCampaignHome');if(root&&!root.dataset.dmV3Obs){root.dataset.dmV3Obs='1';new MutationObserver(()=>setTimeout(bindMenu,0)).observe(root,{childList:true,subtree:false})}}
+/* Fecha ao clicar fora. */
+document.addEventListener('click',e=>{if(!e.target.closest?.('#dmCampaignHome .dm-campaign-ham-wrap'))document.querySelectorAll('#dmCampaignHome .dm-campaign-ham-wrap').forEach(closeMenu)},false);
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+setTimeout(boot,300);setTimeout(boot,900);setInterval(()=>{if(!document.hidden)bindMenu()},2000);
+})();
+</script>
+
+
+
+<!-- DM_20260821_SELLER_PERIOD_KPI_IMMEDIATE_V4 -->
+<script id="dm20260821SellerPeriodKpiImmediateV4">
+(function(){
+'use strict';
+const $=id=>document.getElementById(id);
+const SELLERS={rui_ferreira:'RUI FERREIRA',joao_rebelo:'JOÃO REBELO',sandro_loureiro:'SANDRO LOUREIRO'};
+const norm=v=>String(v??'').replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+const money=v=>new Intl.NumberFormat('pt-PT',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(Number(v)||0);
+const number=v=>new Intl.NumberFormat('pt-PT',{maximumFractionDigits:0}).format(Number(v)||0);
+const weekNo=v=>{const m=String(v||'').match(/(?:SEMANA|SEM|S|WEEK)?\s*[-:]?\s*(\d{1,2})(?!\d)/i);return m?Number(m[1]):0};
+function user(){return sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||''}
+function rawRows(){try{return (typeof DATA!=='undefined'&&Array.isArray(DATA))?DATA:(Array.isArray(window.DATA)?window.DATA:[])}catch(_){return Array.isArray(window.DATA)?window.DATA:[]}}
+function ownRows(){const seller=SELLERS[user()];if(!seller)return null;const n=norm(seller);return rawRows().filter(r=>norm(r?.vendedor)===n)}
+function pct(rows){const net=rows.reduce((a,r)=>a+(Number(r.valor_liquido)||0),0),m=rows.reduce((a,r)=>a+(Number(r.margem)||0),0);if(!rows.length||net<=0||m<0)return 'ND';const v=m/net*100;return Number.isFinite(v)?new Intl.NumberFormat('pt-PT',{minimumFractionDigits:1,maximumFractionDigits:2}).format(v)+'%':'ND'}
+function latestMonth(rows){const refs=rows.map(r=>[Number(r.ano)||0,Number(r.mes)||0]).filter(([y,m])=>y>0&&m>=1&&m<=12).sort((a,b)=>b[0]-a[0]||b[1]-a[1]);return refs[0]||null}
+function latestWeek(rows){const refs=rows.map(r=>[Number(r.ano)||0,weekNo(r.semana)]).filter(([y,w])=>y>0&&w>=1&&w<=53).sort((a,b)=>b[0]-a[0]||b[1]-a[1]);return refs[0]||null}
+function latestDay(rows){return rows.map(r=>String(r.data_venda||'').slice(0,10)).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)).sort().reverse()[0]||''}
+function setKpis(prefix,rows){const net=rows.reduce((a,r)=>a+(Number(r.valor_liquido)||0),0),gross=rows.reduce((a,r)=>a+(Number(r.valor_total)||0),0),clients=new Set(rows.map(r=>r.cliente).filter(Boolean)).size;$(prefix+'Sem')&&($(prefix+'Sem').textContent=money(net));$(prefix+'Com')&&($(prefix+'Com').textContent=money(gross));$(prefix+'Margem')&&($(prefix+'Margem').textContent=pct(rows));$(prefix+'Clientes')&&($(prefix+'Clientes').textContent=number(clients))}
+function renderOwn(){
+ const rows=ownRows();if(rows===null)return false;
+ try{window.dmEnsurePeriodStrips?.()}catch(_){}
+ const month=latestMonth(rows),week=latestWeek(rows),day=latestDay(rows);
+ const mb=$('dmMonthStrip'),wb=$('dmWeekStrip'),db=$('dmDayStrip');
+ if(mb){mb.classList.add('visible');if(month){const [y,m]=month,mr=rows.filter(r=>Number(r.ano)===y&&Number(r.mes)===m),name=new Intl.DateTimeFormat('pt-PT',{month:'long'}).format(new Date(y,m-1,1));$('dmMonthTitle').textContent=name.charAt(0).toUpperCase()+name.slice(1)+' de '+y;setKpis('dmMonth',mr)}else setKpis('dmMonth',[])}
+ if(wb){wb.classList.add('visible');if(week){const [y,w]=week,wr=rows.filter(r=>Number(r.ano)===y&&weekNo(r.semana)===w);$('dmWeekTitle').textContent='Semana '+w+' de '+y;setKpis('dmWeek',wr)}else setKpis('dmWeek',[])}
+ if(db){db.classList.add('visible');if(day){const dr=rows.filter(r=>String(r.data_venda||'').slice(0,10)===day);$('dmDayTitle').textContent='Dia '+new Intl.DateTimeFormat('pt-PT',{day:'2-digit',month:'long',year:'numeric'}).format(new Date(day+'T12:00:00'));setKpis('dmDay',dr)}else{$('dmDayTitle')&&($('dmDayTitle').textContent='Último dia com vendas');setKpis('dmDay',[])}}
+ if(wb&&db&&wb.nextElementSibling!==db)wb.insertAdjacentElement('afterend',db);
+ return true;
+}
+function refresh(){if(!renderOwn()){try{window.dmRenderPeriodKpis?.()}catch(_){}}}
+function burst(){refresh();requestAnimationFrame(refresh);[0,30,80,160,300,600,1000,1800,3000,5000,8000].forEach(ms=>setTimeout(refresh,ms))}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',burst,{once:true});else burst();
+document.addEventListener('click',e=>{if(e.target?.closest?.('#authSubmit'))setTimeout(burst,0);if(e.target?.closest?.('#authLogout'))setTimeout(burst,20)},true);
+window.addEventListener('dm:data-ready',burst);window.addEventListener('focus',refresh);
+let last='';let ticks=0;const timer=setInterval(()=>{ticks++;const a=rawRows(),sig=user()+'|'+a.length+'|'+(a[0]?.data_venda||'')+'|'+(a[a.length-1]?.data_venda||'');if(sig!==last){last=sig;burst()}else if(SELLERS[user()])refresh();if(ticks>80)clearInterval(timer)},250);
+window.dmRefreshSellerPeriodKpis=burst;
+})();
+</script>
+
+
+<!-- DM_20260821_COMPACT_UI_SELLER_KPI_V5 -->
+<style id="dm20260821CompactUiV5">
+/* Banner de campanhas ~25% mais compacto. */
+.dm-campaign-home{min-height:165px!important;border-radius:16px!important;margin-bottom:14px!important}
+.dm-campaign-home-inner{min-height:165px!important;padding:19px 23px!important;gap:18px!important}
+.dm-campaign-home h2{font-size:23px!important;margin:5px 0 6px!important}
+.dm-campaign-home p{font-size:13px!important;line-height:1.42!important;max-width:760px!important}
+.dm-campaign-kicker{font-size:9px!important}
+.dm-campaign-meta{margin-top:10px!important}
+.dm-campaign-chip{padding:4px 7px!important;font-size:9px!important}
+.dm-campaign-home-actions{margin-top:12px!important;gap:7px!important}
+.dm-campaign-home-actions a,.dm-campaign-home-actions button{padding:8px 10px!important;font-size:11px!important;border-radius:8px!important}
+.dm-campaign-nav button{width:31px!important;height:31px!important}
+.dm-campaign-counter{font-size:9px!important;margin-top:5px!important}
+
+/* A barra antiga deixa de ocupar espaço; o menu flutuante abaixo assume a navegação. */
+.tabs{display:none!important}
+#dmPortalNavFab{position:fixed;right:14px;top:50%;transform:translateY(-50%);z-index:1090;width:44px;height:44px;border-radius:14px;padding:0;display:grid;place-items:center;background:#081a3a;color:#fff;border:1px solid rgba(255,255,255,.45);box-shadow:0 10px 28px rgba(15,23,42,.26);font-size:22px;line-height:1}
+#dmPortalNavFab:hover{transform:translateY(-50%) scale(1.04)}
+#dmPortalNavBackdrop{position:fixed;inset:0;z-index:1088;background:rgba(15,23,42,.22);opacity:0;visibility:hidden;pointer-events:none;transition:.18s}
+#dmPortalNavBackdrop.open{opacity:1;visibility:visible;pointer-events:auto}
+#dmPortalNavDrawer{position:fixed;right:0;top:0;bottom:0;z-index:1089;width:min(288px,79.2vw);background:#f8fafc;border-left:1px solid #dbe3ef;box-shadow:-18px 0 45px rgba(15,23,42,.24);transform:translateX(105%);transition:.22s ease;display:flex;flex-direction:column}
+#dmPortalNavDrawer.open{transform:none}
+.dm-nav-head{padding:17px 16px;background:linear-gradient(135deg,#081a3a,#0657ff);color:#fff;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.dm-nav-head strong{font-size:16px}.dm-nav-close{width:34px;height:34px;padding:0;border-radius:9px;background:rgba(255,255,255,.15);font-size:18px}
+#dmPortalNavList{padding:12px;overflow:auto;display:grid;gap:7px}
+.dm-nav-item{width:100%;display:flex;align-items:center;gap:9px;text-align:left;padding:10px 11px;border-radius:10px;background:#fff!important;color:#0b1533!important;border:1px solid #dbe3ef!important;box-shadow:none!important;font-size:13px!important;white-space:normal!important}
+.dm-nav-item:hover{border-color:#9db9ff!important;background:#eef4ff!important}
+.dm-nav-item.active{background:#0657ff!important;color:#fff!important;border-color:#0657ff!important}
+.dm-nav-item.role-hidden{display:none!important}
+@media(max-width:700px){#dmPortalNavFab{right:8px;width:40px;height:40px;border-radius:12px}.dm-campaign-home-inner{padding:16px 18px!important}.dm-campaign-home h2{font-size:20px!important}}
+</style>
+<script id="dm20260821CompactUiSellerKpiV5">
+(function(){
+'use strict';
+const $=id=>document.getElementById(id);
+
+/* 1) KPI dos vendedores: atualização determinística assim que o Supabase/cache termina. */
+function refreshSellerKpis(){try{window.dmRefreshSellerPeriodKpis?.()}catch(e){console.warn('KPI vendedor:',e)}}
+function hookDataLoader(name){
+ const fn=window[name];if(typeof fn!=='function'||fn.__dmV5Hooked)return;
+ const wrapped=async function(){
+   const result=await fn.apply(this,arguments);
+   refreshSellerKpis();
+   requestAnimationFrame(refreshSellerKpis);
+   setTimeout(refreshSellerKpis,40);
+   window.dispatchEvent(new CustomEvent('dm:data-ready',{detail:{source:name,rows:Array.isArray(window.DATA)?window.DATA.length:0}}));
+   return result;
+ };
+ wrapped.__dmV5Hooked=true;window[name]=wrapped;
+}
+function hookLoaders(){hookDataLoader('loadSupabaseSales');hookDataLoader('loadDefaultExcel')}
+
+/* Também observa a linha de estado do carregamento para cobrir chamadas internas antigas. */
+function observeSalesStatus(){
+ const st=$('status');if(!st||st.dataset.dmV5Observed)return;
+ st.dataset.dmV5Observed='1';
+ new MutationObserver(()=>{
+   const t=String(st.textContent||'');
+   if(/Supabase ligado|Dados carregados do cache local|Ficheiro carregado/i.test(t))refreshSellerKpis();
+ }).observe(st,{childList:true,subtree:true,characterData:true});
+}
+
+/* 2) Navegação das abas num drawer lateral que não desloca o painel. */
+function ensureNav(){
+ if($('dmPortalNavDrawer')){syncNav();return}
+ const fab=document.createElement('button');fab.id='dmPortalNavFab';fab.type='button';fab.setAttribute('aria-label','Abrir menu do Portal');fab.title='Menu do Portal';fab.textContent='☰';
+ const back=document.createElement('div');back.id='dmPortalNavBackdrop';
+ const drawer=document.createElement('aside');drawer.id='dmPortalNavDrawer';drawer.setAttribute('aria-hidden','true');drawer.innerHTML='<div class="dm-nav-head"><strong>Menu do Portal</strong><button type="button" class="dm-nav-close" id="dmPortalNavClose" aria-label="Fechar">×</button></div><div id="dmPortalNavList"></div>';
+ document.body.append(back,drawer,fab);
+ const open=()=>{drawer.classList.add('open');back.classList.add('open');drawer.setAttribute('aria-hidden','false')};
+ const close=()=>{drawer.classList.remove('open');back.classList.remove('open');drawer.setAttribute('aria-hidden','true')};
+ fab.onclick=e=>{e.preventDefault();e.stopPropagation();drawer.classList.contains('open')?close():open()};
+ $('dmPortalNavClose').onclick=close;back.onclick=close;
+ document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});
+ drawer.addEventListener('click',e=>{
+   const item=e.target.closest('[data-dm-nav-target]');if(!item)return;
+   const target=item.dataset.dmNavTarget,original=document.querySelector('.tabs .tab-btn[data-tab="'+CSS.escape(target)+'"]');
+   if(original&&!original.classList.contains('role-hidden')){original.click();setTimeout(()=>{syncNav();close()},0)}
+ });
+ syncNav();
+}
+function syncNav(){
+ const list=$('dmPortalNavList'),tabs=document.querySelector('.tabs');if(!list||!tabs)return;
+ const buttons=[...tabs.querySelectorAll('.tab-btn[data-tab]')];
+ list.innerHTML=buttons.map(b=>'<button type="button" class="dm-nav-item '+(b.classList.contains('active')?'active ':'')+(b.classList.contains('role-hidden')?'role-hidden':'')+'" data-dm-nav-target="'+String(b.dataset.tab||'').replace(/"/g,'&quot;')+'">'+b.innerHTML+'</button>').join('');
+}
+function observeTabs(){
+ const tabs=document.querySelector('.tabs');if(!tabs||tabs.dataset.dmV5Observed)return;
+ tabs.dataset.dmV5Observed='1';
+ new MutationObserver(()=>syncNav()).observe(tabs,{childList:true,subtree:true,attributes:true,attributeFilter:['class']});
+ tabs.addEventListener('click',()=>setTimeout(syncNav,0),true);
+}
+function boot(){hookLoaders();observeSalesStatus();ensureNav();observeTabs();refreshSellerKpis()}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+/* Alguns módulos são declarados mais abaixo/inicializados depois do DOM. */
+[100,300,700,1400,2500].forEach(ms=>setTimeout(()=>{hookLoaders();observeSalesStatus();ensureNav();observeTabs()},ms));
+window.addEventListener('dm:data-ready',refreshSellerKpis);
+})();
+</script>
+
+
+<!-- DM_LAYOUT_RECOVERY_20260821 -->
+<style id="dmLayoutRecovery20260821">
+/* Recupera a navegação horizontal original e neutraliza o menu flutuante V5, sem alterar a lógica das abas nem os módulos. */
+.tabs{display:flex!important;position:sticky!important;top:0!important;z-index:50!important;width:100%!important;max-width:100%!important;flex-wrap:nowrap!important;gap:8px!important;overflow-x:auto!important;overflow-y:hidden!important}
+.tabs .tab-btn{flex:0 0 auto!important;max-width:none!important}
+#dmPortalNavFab,#dmPortalNavBackdrop,#dmPortalNavDrawer{display:none!important}
+html,body{max-width:100%;overflow-x:hidden}
+main,.tab-panel,.panel,.card,.filter,.grid,.grid.two,.tables,.cards{min-width:0;max-width:100%}
+.panel,.card,.filter{overflow-wrap:anywhere}
+.chart{max-width:100%;overflow:hidden}.chart svg{max-width:100%}
+.panel>div:has(>table),#managementTable{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{max-width:100%}
+@media(max-width:1100px){.tabs{border-radius:14px!important}}
+@media(max-width:768px){main{width:100%!important;max-width:100%!important;padding-left:12px!important;padding-right:12px!important}.tabs{margin-left:0!important;margin-right:0!important;padding:7px!important;gap:6px!important}.tabs .tab-btn{font-size:11px!important;padding:8px 9px!important;min-height:38px!important}table{min-width:0!important;width:100%!important}th,td{white-space:normal!important;overflow-wrap:anywhere}}
+</style>
+
+<!-- DM_FIXED_NAV_AND_REFRESH_20260821 -->
+<style id="dmFixedNavAndRefresh20260821">
+/* Menu lateral permanente durante o scroll. A barra horizontal antiga fica escondida, mas continua no DOM para comandar as abas. */
+.tabs{display:none!important}
+#dmPortalNavFab{display:grid!important;position:fixed!important;right:16px!important;top:50%!important;transform:translateY(-50%)!important;z-index:1090!important}
+#dmPortalNavFab:hover{transform:translateY(-50%) scale(1.04)!important}
+#dmPortalNavBackdrop{display:block!important;position:fixed!important}
+#dmPortalNavDrawer{display:flex!important;position:fixed!important}
+
+/* O botão Atualizar fica sempre acessível, independentemente da posição do scroll. */
+#reloadBtn{
+  position:fixed!important;
+  right:16px!important;
+  bottom:18px!important;
+  z-index:1085!important;
+  width:auto!important;
+  min-width:138px!important;
+  padding:12px 16px!important;
+  border-radius:12px!important;
+  box-shadow:0 10px 28px rgba(6,87,255,.28)!important;
+}
+#reloadBtn:hover{transform:translateY(-1px)}
+@media(max-width:700px){
+  #dmPortalNavFab{right:9px!important}
+  #reloadBtn{right:9px!important;bottom:12px!important;min-width:124px!important;padding:11px 13px!important;font-size:12px!important}
+}
+@media print{#dmPortalNavFab,#dmPortalNavBackdrop,#dmPortalNavDrawer,#reloadBtn{display:none!important}}
+</style>
+
+<!-- DM_ALWAYS_VISIBLE_REFRESH_20260821 -->
+<style id="dmAlwaysVisibleRefresh20260821">
+/* O botão flutuante é independente do bloco de upload, por isso nunca desaparece com o scroll ou com alterações de layout. */
+#dmFloatingReloadBtn{
+ position:fixed!important;right:16px!important;bottom:18px!important;z-index:120000!important;
+ display:flex!important;align-items:center!important;justify-content:center!important;
+ min-width:142px!important;padding:12px 16px!important;border:0!important;border-radius:12px!important;
+ background:#0657ff!important;color:#fff!important;font:800 14px Inter,Segoe UI,Arial,sans-serif!important;
+ box-shadow:0 12px 30px rgba(6,87,255,.34)!important;cursor:pointer!important;opacity:1!important;visibility:visible!important;
+}
+#dmFloatingReloadBtn:hover{transform:translateY(-1px)!important;box-shadow:0 15px 34px rgba(6,87,255,.40)!important}
+#dmFloatingReloadBtn:active{transform:translateY(0)!important}
+/* O botão original mantém a sua posição normal no topo; o flutuante é o atalho permanente. */
+#reloadBtn{position:static!important;right:auto!important;bottom:auto!important;z-index:auto!important;box-shadow:none!important}
+@media(max-width:700px){#dmFloatingReloadBtn{right:9px!important;bottom:12px!important;min-width:126px!important;padding:11px 13px!important;font-size:12px!important}}
+@media print{#dmFloatingReloadBtn{display:none!important}}
+</style>
+<script id="dmAlwaysVisibleRefreshScript20260821">
+(function(){
+ 'use strict';
+ function ensureFloatingReload(){
+   let btn=document.getElementById('dmFloatingReloadBtn');
+   if(!btn){
+     btn=document.createElement('button');
+     btn.id='dmFloatingReloadBtn';
+     btn.type='button';
+     btn.textContent='Atualizar agora';
+     btn.setAttribute('aria-label','Atualizar dados agora');
+     document.body.appendChild(btn);
+   }
+   if(!btn.dataset.dmBound){
+     btn.dataset.dmBound='1';
+     btn.addEventListener('click',function(e){
+       e.preventDefault();e.stopPropagation();
+       const original=document.getElementById('reloadBtn');
+       if(original){ original.click(); return; }
+       try{ if(typeof window.loadSupabaseSales==='function'){ window.loadSupabaseSales(true); return; } }catch(_){}
+       try{ if(typeof window.loadDefaultExcel==='function'){ window.loadDefaultExcel(true); return; } }catch(_){}
+     });
+   }
+ }
+ function boot(){ensureFloatingReload()}
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+ [100,500,1200,2500].forEach(ms=>setTimeout(ensureFloatingReload,ms));
+ new MutationObserver(ensureFloatingReload).observe(document.documentElement,{childList:true,subtree:true});
+})();
+</script>
+
+<!-- DM_CHAT_UNDER_AVATAR_20260821 -->
+<style id="dmChatUnderAvatar20260821">
+.auth-session .dm-user-chat-stack{display:flex;flex-direction:column;align-items:center;gap:5px}
+.auth-session .dm-user-chat-stack #authUserLabel{margin:0}
+.auth-session #dmChatLauncher{position:static!important;right:auto!important;bottom:auto!important;top:auto!important;transform:none!important;width:38px!important;height:32px!important;min-height:32px!important;border-radius:10px!important;font-size:17px!important;padding:0!important;box-shadow:0 6px 16px rgba(6,87,255,.22)!important}
+.auth-session #dmChatLauncher:hover{transform:translateY(-1px)!important}
+@media(max-width:700px){.auth-session .dm-user-chat-stack{align-items:flex-end}.auth-session #dmChatLauncher{width:36px!important;height:30px!important;min-height:30px!important}}
+</style>
+<script id="dmChatUnderAvatarScript20260821">
+(function(){
+ 'use strict';
+ function placeChat(){
+   const session=document.querySelector('header .auth-session');
+   const user=document.getElementById('authUserLabel');
+   const chat=document.getElementById('dmChatLauncher');
+   if(!session||!user||!chat)return false;
+   let stack=document.getElementById('dmUserChatStack');
+   if(!stack){
+     stack=document.createElement('div');
+     stack.id='dmUserChatStack';
+     stack.className='dm-user-chat-stack';
+     session.insertBefore(stack,user);
+     stack.appendChild(user);
+   }
+   if(chat.parentElement!==stack)stack.appendChild(chat);
+   return true;
+ }
+ function boot(){
+   placeChat();
+   let n=0;const t=setInterval(()=>{if(placeChat()||++n>40)clearInterval(t)},150);
+ }
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+})();
+</script>
 </body>
 </html>

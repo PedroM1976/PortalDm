@@ -2551,6 +2551,68 @@ async function refresh(){
     return defaultFor(user);
   }
   function savePrefs(user,p){const store=prefsStore();store[user]=p;localStorage.setItem('dmUserPrefsByUser',JSON.stringify(store))}
+
+  // Preferências centralizadas no Supabase. O localStorage fica apenas como cache local
+  // para manter o portal funcional em caso de falha temporária de rede.
+  const USER_PREFS_TABLE='portal_user_preferences';
+  function prefsSupabaseCfg(){
+    if(window.DM_SUPABASE_CONFIG)return window.DM_SUPABASE_CONFIG;
+    try{return JSON.parse(localStorage.getItem('dmSupabaseConfig')||'{}')||{}}catch(_){return {}}
+  }
+  function prefsHeaders(write=false){
+    const c=prefsSupabaseCfg(),h={apikey:c.key||'',Authorization:'Bearer '+(c.key||'')};
+    if(write)h['Content-Type']='application/json';
+    return h;
+  }
+  async function loadPrefsFromSupabase(user){
+    const c=prefsSupabaseCfg();if(!user||!c.url||!c.key)return null;
+    const url=new URL(`${c.url}/rest/v1/${USER_PREFS_TABLE}`);
+    url.searchParams.set('select','user_id,prefs');
+    url.searchParams.set('user_id',`eq.${user}`);
+    url.searchParams.set('limit','1');
+    const r=await fetch(url.href,{headers:prefsHeaders(false),cache:'no-store'});
+    if(!r.ok){
+      const txt=await r.text();
+      if(r.status===404||/PGRST205|does not exist|Could not find the table/i.test(txt)) throw new Error('Tabela '+USER_PREFS_TABLE+' ainda não existe no Supabase.');
+      throw new Error('Supabase '+r.status+(txt?' · '+txt:''));
+    }
+    const rows=await r.json(),row=Array.isArray(rows)?rows[0]:null;
+    if(!row||!row.prefs)return null;
+    const merged=Object.assign(defaultFor(user),row.prefs,{tabs:Object.assign(defaultFor(user).tabs,row.prefs.tabs||{})});
+    savePrefs(user,merged);
+    return merged;
+  }
+  async function loadAllPrefsFromSupabase(){
+    const c=prefsSupabaseCfg();if(!c.url||!c.key)return;
+    const url=new URL(`${c.url}/rest/v1/${USER_PREFS_TABLE}`);
+    url.searchParams.set('select','user_id,prefs');
+    const r=await fetch(url.href,{headers:prefsHeaders(false),cache:'no-store'});
+    if(!r.ok){const txt=await r.text();if(r.status===404||/PGRST205|does not exist|Could not find the table/i.test(txt))throw new Error('Tabela '+USER_PREFS_TABLE+' ainda não existe no Supabase.');throw new Error('Supabase '+r.status+(txt?' · '+txt:''))}
+    const rows=await r.json(),store=prefsStore();
+    (rows||[]).forEach(row=>{if(row?.user_id&&row?.prefs)store[row.user_id]=Object.assign(defaultFor(row.user_id),row.prefs,{tabs:Object.assign(defaultFor(row.user_id).tabs,row.prefs.tabs||{})})});
+    localStorage.setItem('dmUserPrefsByUser',JSON.stringify(store));
+  }
+  async function savePrefsToSupabase(user,prefs){
+    savePrefs(user,prefs); // cache imediato
+    const c=prefsSupabaseCfg();if(!c.url||!c.key)throw new Error('Configuração do Supabase em falta.');
+    const url=`${c.url}/rest/v1/${USER_PREFS_TABLE}?on_conflict=user_id`;
+    const r=await fetch(url,{method:'POST',headers:{...prefsHeaders(true),Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({user_id:user,prefs,updated_at:new Date().toISOString()}),cache:'no-store'});
+    if(!r.ok){const txt=await r.text();if(r.status===404||/PGRST205|does not exist|Could not find the table/i.test(txt))throw new Error('Tabela '+USER_PREFS_TABLE+' ainda não existe no Supabase.');throw new Error('Não foi possível guardar preferências no Supabase ('+r.status+'). '+txt)}
+  }
+  async function syncPrefsForLogin(user){
+    try{
+      if(user==='assistencia')await loadAllPrefsFromSupabase();
+      else await loadPrefsFromSupabase(user);
+      window.dmPrefsSupabaseReady=true;
+    }catch(e){
+      window.dmPrefsSupabaseReady=false;
+      console.warn('Preferências Supabase indisponíveis; a usar cache local:',e.message||e);
+    }
+  }
+  window.dmLoadPrefsFromSupabase=loadPrefsFromSupabase;
+  window.dmLoadAllPrefsFromSupabase=loadAllPrefsFromSupabase;
+  window.dmSavePrefsToSupabase=savePrefsToSupabase;
+
   function getLogo(){return document.querySelector('header .logo')?.getAttribute('src')||''}
   function privileged(){return currentUser==='assistencia'}
 
@@ -2643,7 +2705,7 @@ async function refresh(){
         </div>
       </div></div>`;
     const footer=main.querySelector('.footer');footer?main.insertBefore(section,footer):main.appendChild(section);
-    btn.addEventListener('click',()=>activateTab('tab-admin-pref'));a$('prefTargetUser').addEventListener('change',renderAdminPrefs);a$('prefSave').onclick=saveAdminPrefs;a$('prefReset').onclick=resetTargetPrefs;a$('openManagementFromPrefs').onclick=()=>a$('dmManagementButton')?.click();a$('entryNoteSave').onclick=saveEntryNote;a$('entryNotePreview').onclick=()=>showEntryNote(true);a$('entryNoteImage').addEventListener('change',handleEntryNoteImage);a$('entryNoteRemoveImage').onclick=removeEntryNoteImage;a$('entryNoteVisibleUntil').addEventListener('change',updateEntryNoteExpiryStatus);a$('weeklyReportOpen').onclick=()=>showWeeklyReport(true,a$('weeklyReportUser')?.value||'administrador');a$('weeklyReportClearHistory').onclick=clearWeeklyReportHistory;a$('backupDownload').onclick=downloadPortalBackup;a$('backupRestorePick').onclick=()=>a$('backupRestoreFile').click();a$('backupRestoreFile').addEventListener('change',restorePortalBackup);renderEntryNoteEditor();renderBackupStatus();renderAvatarManager();loadAvatarsFromSupabase();a$('avatarSave').onclick=saveAvatar;a$('avatarRemove').onclick=removeAvatar;
+    btn.addEventListener('click',()=>activateTab('tab-admin-pref'));a$('prefTargetUser').addEventListener('change',async()=>{const u=a$('prefTargetUser').value;try{await loadPrefsFromSupabase(u)}catch(e){console.warn(e)}renderAdminPrefs()});a$('prefSave').onclick=saveAdminPrefs;a$('prefReset').onclick=resetTargetPrefs;a$('openManagementFromPrefs').onclick=()=>a$('dmManagementButton')?.click();a$('entryNoteSave').onclick=saveEntryNote;a$('entryNotePreview').onclick=()=>showEntryNote(true);a$('entryNoteImage').addEventListener('change',handleEntryNoteImage);a$('entryNoteRemoveImage').onclick=removeEntryNoteImage;a$('entryNoteVisibleUntil').addEventListener('change',updateEntryNoteExpiryStatus);a$('weeklyReportOpen').onclick=()=>showWeeklyReport(true,a$('weeklyReportUser')?.value||'administrador');a$('weeklyReportClearHistory').onclick=clearWeeklyReportHistory;a$('backupDownload').onclick=downloadPortalBackup;a$('backupRestorePick').onclick=()=>a$('backupRestoreFile').click();a$('backupRestoreFile').addEventListener('change',restorePortalBackup);renderEntryNoteEditor();renderBackupStatus();renderAvatarManager();loadAvatarsFromSupabase();a$('avatarSave').onclick=saveAvatar;a$('avatarRemove').onclick=removeAvatar;
   }
 
 
@@ -2886,10 +2948,12 @@ async function refresh(){
     root.innerHTML=Object.entries(labels).map(([id,label])=>`<label class="admin-pref-item"><span>${label}</span><input type="checkbox" data-pref-tab="${id}" ${prefs.tabs[id]!==false?'checked':''}></label>`).join('');
     a$('prefAllowPdf').checked=prefs.allowPdf!==false;a$('prefAllowCsv').checked=prefs.allowCsv!==false;a$('prefAllowCalendar').checked=prefs.allowCalendarEdit!==false;a$('prefAllowManagement').checked=prefs.allowManagement===true;if(a$('prefAllowWeeklyReport'))a$('prefAllowWeeklyReport').checked=prefs.allowWeeklyReport===true;if(a$('prefAllowClientPortal'))a$('prefAllowClientPortal').checked=prefs.allowClientPortal===true;
   }
-  function saveAdminPrefs(){
-    const target=a$('prefTargetUser').value,prefs=loadPrefs(target);document.querySelectorAll('[data-pref-tab]').forEach(el=>prefs.tabs[el.dataset.prefTab]=el.checked);prefs.allowPdf=a$('prefAllowPdf').checked;prefs.allowCsv=a$('prefAllowCsv').checked;prefs.allowCalendarEdit=a$('prefAllowCalendar').checked;prefs.allowManagement=a$('prefAllowManagement').checked;prefs.allowWeeklyReport=a$('prefAllowWeeklyReport')?.checked===true;prefs.allowClientPortal=a$('prefAllowClientPortal')?.checked===true;savePrefs(target,prefs);if(target===currentUser)applyRole();alert('Preferências guardadas para '+AUTH_USERS[target].label+'.');
+  async function saveAdminPrefs(){
+    const target=a$('prefTargetUser').value,prefs=loadPrefs(target);document.querySelectorAll('[data-pref-tab]').forEach(el=>prefs.tabs[el.dataset.prefTab]=el.checked);prefs.allowPdf=a$('prefAllowPdf').checked;prefs.allowCsv=a$('prefAllowCsv').checked;prefs.allowCalendarEdit=a$('prefAllowCalendar').checked;prefs.allowManagement=a$('prefAllowManagement').checked;prefs.allowWeeklyReport=a$('prefAllowWeeklyReport')?.checked===true;prefs.allowClientPortal=a$('prefAllowClientPortal')?.checked===true;
+    try{await savePrefsToSupabase(target,prefs);if(target===currentUser)applyRole();alert('Preferências guardadas no Supabase para '+AUTH_USERS[target].label+'. Ficam disponíveis em qualquer PC.')}
+    catch(e){alert('As preferências ficaram guardadas apenas neste PC porque não foi possível gravar no Supabase.\n\n'+(e.message||e));}
   }
-  function resetTargetPrefs(){const target=a$('prefTargetUser').value;savePrefs(target,defaultFor(target));renderAdminPrefs();if(target===currentUser)applyRole();alert('Preferências repostas para '+AUTH_USERS[target].label+'.')}
+  async function resetTargetPrefs(){const target=a$('prefTargetUser').value,prefs=defaultFor(target);try{await savePrefsToSupabase(target,prefs);renderAdminPrefs();if(target===currentUser)applyRole();alert('Preferências repostas no Supabase para '+AUTH_USERS[target].label+'.')}catch(e){renderAdminPrefs();alert('Reposição guardada apenas neste PC.\n\n'+(e.message||e));}}
   function activateTab(id){document.querySelectorAll('.tab-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===id));document.querySelectorAll('.tab-panel').forEach(x=>x.classList.toggle('active',x.id===id))}
   function applyRole(){
     const prefs=loadPrefs(currentUser),isAssist=privileged();document.querySelectorAll('.tab-btn[data-tab],.tab-panel').forEach(el=>el.classList.remove('role-hidden'));document.querySelectorAll('.assistance-only').forEach(el=>el.classList.toggle('role-hidden',!isAssist));
@@ -2932,7 +2996,7 @@ async function refresh(){
     }catch(e){alert('Não foi possível restaurar o backup: '+(e.message||e));renderBackupStatus('Falha ao restaurar backup.',true)}
   }
 
-  function login(){
+  async function login(){
     window.dmResetCrmSession?.();
     const role=a$('authRole').value,password=a$('authPassword').value;
     if(!AUTH_USERS[role]||AUTH_USERS[role].password!==password){
@@ -2946,6 +3010,10 @@ async function refresh(){
     // Primeiro conclui o login normal.
     a$('authOverlay').classList.add('hidden');
     document.body.classList.remove('auth-locked','dm-preauth-lock');
+
+    // Antes de aplicar as permissões, tenta obter a versão central do Supabase.
+    // Se a rede/tabela estiver indisponível, mantém a cache local como fallback.
+    await syncPrefsForLogin(role);
 
     // Depois aplica permissões e contexto pessoal sem bloquear a autenticação.
     applyRole();

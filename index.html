@@ -455,6 +455,22 @@ body.dm-preauth-lock{background:linear-gradient(135deg,#081a3a,#0657ff)!importan
 <section id="tab-crescimento" class="tab-panel">
   <div class="grid">
     <div class="panel wide"><h2>Crescimento Ano vs Ano <span class="chart-title-note">· comparação mensal de vendas sem IVA</span></h2><div id="chartYoY" class="chart empty">Sem dados</div><div id="tableYoY" class="smallnote"></div></div>
+
+    <div class="panel wide dm-growth-period-panel">
+      <h2>Valores acumulados por período <span class="chart-title-note">· responde aos filtros ativos e compara o ano selecionado com o ano anterior</span></h2>
+      <div id="dmGrowthPeriodSummary" class="dm-growth-period-summary"><div class="empty">Sem dados</div></div>
+      <div class="dm-growth-period-grid">
+        <div class="dm-growth-period-card"><h3>Semestre</h3><div id="dmGrowthSemester"></div></div>
+        <div class="dm-growth-period-card"><h3>Trimestre</h3><div id="dmGrowthQuarter"></div></div>
+        <div class="dm-growth-period-card"><h3>Quadrimestre</h3><div id="dmGrowthFourMonth"></div></div>
+      </div>
+    </div>
+
+    <div class="panel wide">
+      <h2>Mapa de Portugal — crescimento por distrito <span class="chart-title-note">· responde aos filtros ativos e compara o ano selecionado com o ano anterior</span></h2>
+      <div id="dmGrowthPortugalMap" class="chart empty">Sem dados</div>
+      <div class="dm-growth-map-note">Percentagem positiva = crescimento · percentagem negativa = quebra. O tamanho do círculo representa a intensidade da variação.</div>
+    </div>
   </div>
 </section>
 
@@ -501,9 +517,21 @@ body.dm-preauth-lock{background:linear-gradient(135deg,#081a3a,#0657ff)!importan
 </section>
 
 <section id="tab-geografia" class="tab-panel">
+  <div class="panel wide dm-geo-period-panel">
+    <h2>Análise geográfica por período <span class="chart-title-note">· Área + Ano / Semestre / Trimestre / Quadrimestre · v4 CORRIGIDO</span></h2>
+    <div class="dm-geo-period-controls">
+      <div><label for="dmGeoArea">Área de Negócio</label><select id="dmGeoArea"><option value="">Todas as áreas</option></select></div>
+      <div><label for="dmGeoPeriodType">Período</label><select id="dmGeoPeriodType"><option value="year">Ano completo</option><option value="semester">Semestre</option><option value="quarter">Trimestre</option><option value="fourmonth">Quadrimestre</option></select></div>
+      <div><label for="dmGeoPeriodValue">Selecionar</label><select id="dmGeoPeriodValue"><option value="all">Ano completo</option></select></div>
+      <div class="dm-geo-period-kpi"><span>Vendas do período</span><strong id="dmGeoPeriodTotal">€0</strong></div>
+      <div class="dm-geo-period-kpi"><span>Distritos com vendas</span><strong id="dmGeoDistrictCount">0</strong></div>
+    </div>
+    <div id="dmGeoPeriodNote" class="smallnote">O mapa e os gráficos abaixo respondem ao período selecionado e aos restantes filtros ativos.</div>
+  </div>
   <div class="grid two">
-    <div class="panel"><h2>Vendas por área de negócio <span class="chart-title-note">· clique numa barra</span></h2><div id="chartAreas" class="chart empty">Sem dados</div></div>
-    <div class="panel"><h2>Mapa de Portugal por distrito <span class="chart-title-note">· identifica vendas por distrito</span></h2><div id="chartPortugal" class="chart empty">Sem dados</div></div>
+    <div class="panel wide dm-chart-open"><h2>Mapa de Portugal por distrito <span class="chart-title-note">· acumulado do período e área selecionados</span></h2><div id="chartPortugal" class="chart empty">Sem dados</div></div>
+    <div class="panel"><h2>Vendas por área de negócio <span class="chart-title-note">· período geográfico selecionado</span></h2><div id="chartAreas" class="chart empty">Sem dados</div></div>
+    <div class="panel"><h2>Distribuição por distrito <span class="chart-title-note">· percentagem do total do período</span></h2><div id="dmGeoDistrictPctChart" class="chart empty">Sem dados</div><div id="dmGeoDistrictPctTable" class="smallnote"></div></div>
   </div>
 </section>
 
@@ -7833,6 +7861,234 @@ document.addEventListener('click',e=>{if(e.target?.closest?.('.tab-btn[data-tab=
 
 <script id="dm20260824PersonalKpiHardGuard">
 (function(){'use strict';const SELLERS={rui_ferreira:'RUI FERREIRA',joao_rebelo:'JOÃO REBELO',sandro_loureiro:'SANDRO LOUREIRO'};const $=id=>document.getElementById(id);const user=()=>sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||'';const norm=v=>String(v??'').replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();const rows=()=>{try{return (typeof DATA!=='undefined'&&Array.isArray(DATA))?DATA:(Array.isArray(window.DATA)?window.DATA:[])}catch(_){return Array.isArray(window.DATA)?window.DATA:[]}};const own=()=>{const s=SELLERS[user()];return s?rows().filter(r=>norm(r?.vendedor)===norm(s)):null};const eur=n=>new Intl.NumberFormat('pt-PT',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(Number(n)||0);const num=n=>new Intl.NumberFormat('pt-PT',{maximumFractionDigits:0}).format(Number(n)||0);let busy=false;function apply(){const u=user(),a=own();if(u)document.documentElement.setAttribute('data-dm-user',u);else document.documentElement.removeAttribute('data-dm-user');document.body?.classList.toggle('dm-margin-restricted',!!SELLERS[u]);if(!a||busy)return;busy=true;try{const sum=k=>a.reduce((t,r)=>t+(Number(r?.[k])||0),0);$('kpiSemIva')&&($('kpiSemIva').textContent=eur(sum('valor_liquido')));$('kpiIva')&&($('kpiIva').textContent=eur(sum('iva')));$('kpiComIva')&&($('kpiComIva').textContent=eur(sum('valor_total')));$('kpiClientes')&&($('kpiClientes').textContent=num(new Set(a.map(r=>r.cliente).filter(Boolean)).size));$('kpiArtigos')&&($('kpiArtigos').textContent=num(new Set(a.map(r=>r.artigo).filter(Boolean)).size));$('kpiVendedores')&&($('kpiVendedores').textContent=num(new Set(a.map(r=>r.vendedor).filter(Boolean)).size));$('kpiQtd')&&($('kpiQtd').textContent=num(sum('quantidade')));$('kpiLinhas')&&($('kpiLinhas').textContent=num(a.length)+' linhas do utilizador');try{window.dmRefreshSellerPeriodKpis?.()}catch(_){}}finally{busy=false}}function burst(){apply();requestAnimationFrame(apply);[20,80,180,400,800,1500].forEach(ms=>setTimeout(apply,ms))}document.addEventListener('click',e=>{if(e.target?.closest?.('#authSubmit,#authLogout'))setTimeout(burst,0)},true);window.addEventListener('dm:data-ready',burst);window.addEventListener('focus',apply);if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',burst,{once:true});else burst();window.dmApplyPersonalKpiGuard=burst;})();
+</script>
+
+<style id="dmGrowthAccumulatedStyles">
+#tab-crescimento .dm-growth-period-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:16px}
+#tab-crescimento .dm-growth-period-card{border:1px solid var(--line);border-radius:18px;padding:16px;background:linear-gradient(135deg,#fff,#f8fbff)}
+#tab-crescimento .dm-growth-period-card h3{margin:0 0 12px;font-size:17px;color:#172033}
+#tab-crescimento .dm-growth-period-summary{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:12px}
+#tab-crescimento .dm-growth-summary-item{border:1px solid var(--line);border-radius:15px;padding:14px;background:#fff}
+#tab-crescimento .dm-growth-summary-item span{display:block;font-size:11px;color:var(--muted);font-weight:900;text-transform:uppercase;letter-spacing:.05em}
+#tab-crescimento .dm-growth-summary-item strong{display:block;font-size:22px;margin-top:6px;letter-spacing:-.03em}
+#tab-crescimento .dm-growth-summary-item small{display:block;margin-top:5px;color:var(--muted);font-weight:700}
+#tab-crescimento .dm-growth-table{width:100%;border-collapse:collapse;font-size:12px}
+#tab-crescimento .dm-growth-table th,#tab-crescimento .dm-growth-table td{padding:8px 7px;border-bottom:1px solid var(--line)}
+#tab-crescimento .dm-growth-table th{text-align:left;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.04em}
+#tab-crescimento .dm-growth-table .num{text-align:right;font-variant-numeric:tabular-nums}
+#tab-crescimento #dmGrowthPortugalMap{height:1040px;min-height:760px}
+#tab-crescimento .dm-growth-map-note{margin-top:9px;color:var(--muted);font-size:12px;font-weight:700}
+@media(max-width:1050px){#tab-crescimento .dm-growth-period-grid{grid-template-columns:1fr}#tab-crescimento .dm-growth-period-summary{grid-template-columns:1fr 1fr}}
+@media(max-width:760px){#tab-crescimento .dm-growth-period-summary{grid-template-columns:1fr}#tab-crescimento #dmGrowthPortugalMap{height:760px!important;min-height:760px!important;padding:6px!important}}
+</style>
+<script id="dmGrowthAccumulatedScript">
+(function(){
+'use strict';
+const $g=id=>document.getElementById(id);
+const escg=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+const fmtMoney=v=>new Intl.NumberFormat('pt-PT',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(Number(v)||0);
+const fmtPct=v=>Number.isFinite(v)?((v>0?'+':'')+v.toFixed(1).replace('.',',')+'%'):'—';
+const sumNet=rows=>(rows||[]).reduce((a,r)=>a+(Number(r.valor_liquido)||0),0);
+const pctChange=(cur,prev)=>prev?((cur-prev)/Math.abs(prev)*100):(cur?100:0);
+const badgeGrowth=v=>{const cls=v>0?'pos':v<0?'neg':'neu';return `<span class="badge ${cls}">${fmtPct(v)}</span>`};
+const norm=v=>String(v??'').replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+const val=id=>String($g(id)?.value??'').trim();
+const weekNo=v=>{const m=String(v||'').match(/\d{1,2}/);return m?Number(m[0]):0};
+
+function allVisibleRows(){
+  let rows=[];
+  try{rows=(typeof DATA!=='undefined'&&Array.isArray(DATA))?DATA:(Array.isArray(window.DATA)?window.DATA:[])}catch(_){rows=Array.isArray(window.DATA)?window.DATA:[]}
+  try{if(typeof roleVisibleRows==='function')rows=roleVisibleRows(rows)}catch(_){}
+  try{if(typeof secureCurrentUserRows==='function')rows=secureCurrentUserRows(rows)}catch(_){}
+  return rows||[];
+}
+function eq(a,b){return !b||norm(a)===norm(b)}
+function passesNonYearFilters(r,{ignoreMonth=false,ignoreWeek=false}={}){
+  const month=Number(val('mes')||0),week=val('semana'),seller=val('vendedor'),client=val('cliente'),area=val('area'),group=val('grupo'),family=val('familia'),subfamily=val('subfamilia'),district=val('distrito');
+  const q=norm(val('artigoPesquisa'));
+  if(!ignoreMonth&&month&&Number(r.mes)!==month)return false;
+  if(!ignoreWeek&&week){const a=weekNo(week),b=weekNo(r.semana);if(a&&b){if(a!==b)return false}else if(norm(r.semana)!==norm(week))return false}
+  if(!eq(r.vendedor,seller)||!eq(r.cliente,client)||!eq(r.area,area)||!eq(r.grupo,group)||!eq(r.familia,family)||!eq(r.subfamilia,subfamily)||!eq(r.distrito,district))return false;
+  if(q&&!norm((r.search_blob||'')+' '+(r.artigo||'')+' '+(r.descricao||'')+' '+(r.artigo_desc||'')).includes(q))return false;
+  return true;
+}
+function comparisonYears(rows){
+  const available=[...new Set(rows.map(r=>Number(r.ano)).filter(Boolean))].sort((a,b)=>a-b);
+  if(!available.length)return null;
+  const selected=Number(val('ano')||0);
+  let cur=selected&&available.includes(selected)?selected:available[available.length-1];
+  let prev=available.filter(y=>y<cur).pop();
+  if(!prev&&available.length>=2){cur=available[available.length-1];prev=available[available.length-2]}
+  return prev?{prev,cur}:null;
+}
+function growthRows(){
+  const base=allVisibleRows(),years=comparisonYears(base);if(!years)return {rows:[],base,years:null};
+  return {rows:base.filter(r=>(Number(r.ano)===years.prev||Number(r.ano)===years.cur)&&passesNonYearFilters(r)),base,years};
+}
+function ytdRows(base,years){
+  if(!years)return {rows:[],cutoff:0};
+  const selectedMonth=Number(val('mes')||0);
+  const currentFiltered=base.filter(r=>Number(r.ano)===years.cur&&passesNonYearFilters(r,{ignoreMonth:true,ignoreWeek:true}));
+  const cutoff=selectedMonth||Math.max(0,...currentFiltered.map(r=>Number(r.mes)||0));
+  if(!cutoff)return {rows:[],cutoff:0};
+  const rows=base.filter(r=>(Number(r.ano)===years.prev||Number(r.ano)===years.cur)&&Number(r.mes)<=cutoff&&passesNonYearFilters(r,{ignoreMonth:true,ignoreWeek:true}));
+  return {rows,cutoff};
+}
+function periodRows(rows,years,monthsPerPeriod,prefix){
+  if(!years)return null;const {prev,cur}=years,count=12/monthsPerPeriod,out=[];
+  for(let i=0;i<count;i++){
+    const start=i*monthsPerPeriod+1,end=start+monthsPerPeriod-1;
+    const pv=sumNet(rows.filter(r=>Number(r.ano)===prev&&Number(r.mes)>=start&&Number(r.mes)<=end));
+    const cv=sumNet(rows.filter(r=>Number(r.ano)===cur&&Number(r.mes)>=start&&Number(r.mes)<=end));
+    out.push({label:prefix+(i+1),start,end,prev:pv,cur:cv,pct:pctChange(cv,pv)});
+  }
+  return {prev,cur,rows:out};
+}
+function renderPeriodTable(id,data){
+  const root=$g(id);if(!root)return;
+  if(!data){root.innerHTML='<div class="empty">São necessários pelo menos 2 anos</div>';return;}
+  root.innerHTML=`<table class="dm-growth-table"><thead><tr><th>Período</th><th class="num">${data.prev}</th><th class="num">${data.cur}</th><th class="num">Var. %</th></tr></thead><tbody>${data.rows.map(r=>`<tr><td><b>${r.label}</b><br><small>${r.start}–${r.end} mês</small></td><td class="num">${fmtMoney(r.prev)}</td><td class="num">${fmtMoney(r.cur)}</td><td class="num">${badgeGrowth(r.pct)}</td></tr>`).join('')}</tbody></table>`;
+}
+function renderSummary(rows,base,years){
+  const root=$g('dmGrowthPeriodSummary');if(!root)return;
+  if(!years){root.innerHTML='<div class="empty">São necessários pelo menos 2 anos para calcular o crescimento acumulado.</div>';return;}
+  const {prev,cur}=years,pv=sumNet(rows.filter(r=>Number(r.ano)===prev)),cv=sumNet(rows.filter(r=>Number(r.ano)===cur)),pc=pctChange(cv,pv);
+  const ytd=ytdRows(base,years),pvYtd=sumNet(ytd.rows.filter(r=>Number(r.ano)===prev)),cvYtd=sumNet(ytd.rows.filter(r=>Number(r.ano)===cur)),pcYtd=pctChange(cvYtd,pvYtd);
+  root.innerHTML=`<div class="dm-growth-summary-item"><span>Ano atual</span><strong>${fmtMoney(cv)}</strong><small>${cur}</small></div><div class="dm-growth-summary-item"><span>Ano anterior</span><strong>${fmtMoney(pv)}</strong><small>${prev}</small></div><div class="dm-growth-summary-item"><span>Crescimento total</span><strong>${badgeGrowth(pc)}</strong><small>${prev} → ${cur}</small></div><div class="dm-growth-summary-item"><span>Acumulado até mês ${ytd.cutoff||'—'}</span><strong>${badgeGrowth(pcYtd)}</strong><small>${fmtMoney(pvYtd)} → ${fmtMoney(cvYtd)}</small></div>`;
+}
+function normDistrict(s){
+  if(typeof window.normDistrictName==='function')return window.normDistrictName(s);
+  const x=norm(s),map={'VIANA DO CASTELO':'Viana do Castelo','BRAGA':'Braga','VILA REAL':'Vila Real','BRAGANCA':'Bragança','PORTO':'Porto','AVEIRO':'Aveiro','VISEU':'Viseu','GUARDA':'Guarda','COIMBRA':'Coimbra','CASTELO BRANCO':'Castelo Branco','LEIRIA':'Leiria','SANTAREM':'Santarém','LISBOA':'Lisboa','PORTALEGRE':'Portalegre','SETUBAL':'Setúbal','EVORA':'Évora','BEJA':'Beja','FARO':'Faro','ACORES':'Açores','AZORES':'Açores','MADEIRA':'Madeira'};
+  return map[x]||String(s||'N/D');
+}
+function renderGrowthMap(rows,years){
+  const root=$g('dmGrowthPortugalMap');if(!root)return;
+  if(!years){root.classList.add('empty');root.innerHTML='<div class="empty">São necessários pelo menos 2 anos para calcular o crescimento por distrito.</div>';return;}
+  const {prev,cur}=years,districts=[['Viana do Castelo',360,70],['Braga',430,115],['Vila Real',525,130],['Bragança',630,120],['Porto',430,195],['Aveiro',430,285],['Viseu',530,260],['Guarda',635,275],['Coimbra',460,370],['Castelo Branco',600,405],['Leiria',420,475],['Santarém',500,560],['Lisboa',405,665],['Portalegre',610,575],['Setúbal',455,760],['Évora',590,720],['Beja',555,850],['Faro',555,965],['Açores',180,900],['Madeira',250,1010]];
+  const data=districts.map(([name,x,y])=>{const rr=rows.filter(r=>normDistrict(r.distrito)===name),pv=sumNet(rr.filter(r=>Number(r.ano)===prev)),cv=sumNet(rr.filter(r=>Number(r.ano)===cur));return{name,x,y,prev:pv,cur:cv,pct:pctChange(cv,pv)}});
+  const maxAbs=Math.max(1,...data.filter(d=>d.prev||d.cur).map(d=>Math.abs(d.pct)));const w=1000,h=1120;
+  let svg=`<svg viewBox="0 0 ${w} ${h}"><defs><filter id="dmGrowthMapShadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#0f172a" flood-opacity="0.14"/></filter></defs><path d="M385 55 C490 55 620 65 690 150 C745 220 720 325 660 405 C735 520 710 650 640 750 C610 835 620 920 565 1010 C500 965 465 870 435 785 C375 700 350 600 390 505 C350 430 345 330 395 245 C365 175 345 105 385 55 Z" fill="#f8fbff" stroke="#cbd5e1" stroke-width="5"/>`;
+  data.forEach(d=>{const intensity=Math.min(1,Math.abs(d.pct)/maxAbs),rad=38+intensity*42,fill=d.pct>0?'#16a34a':d.pct<0?'#dc2626':'#94a3b8',op=(d.prev||d.cur)?(.30+intensity*.65):.10;svg+=`<circle cx="${d.x}" cy="${d.y}" r="${rad}" fill="${fill}" opacity="${op}" stroke="#fff" stroke-width="5" filter="url(#dmGrowthMapShadow)"><title>${escg(d.name)}: ${fmtPct(d.pct)} · ${prev} ${fmtMoney(d.prev)} → ${cur} ${fmtMoney(d.cur)}</title></circle><text class="label" x="${d.x}" y="${d.y+3}" text-anchor="middle" style="font-size:19px">${escg(d.name)}</text><text class="value" x="${d.x}" y="${d.y+30}" text-anchor="middle" style="font-size:18px;fill:${fill}">${(d.prev||d.cur)?fmtPct(d.pct):''}</text>`});
+  const top=[...data].filter(d=>d.prev||d.cur).sort((a,b)=>b.pct-a.pct).slice(0,8);svg+=`<text class="value" x="730" y="95">Top crescimento</text><text class="label" x="730" y="119">${prev} → ${cur}</text>`;top.forEach((d,i)=>{const fill=d.pct>=0?'#16a34a':'#dc2626';svg+=`<rect x="730" y="${140+i*46}" width="22" height="22" rx="5" fill="${fill}"/><text class="label" x="764" y="${158+i*46}" style="font-size:19px">${escg(d.name)}</text><text class="value" x="970" y="${158+i*46}" text-anchor="end" style="font-size:19px;fill:${fill}">${fmtPct(d.pct)}</text>`});svg+='</svg>';root.classList.remove('empty');root.innerHTML=svg;
+}
+function renderGrowthEnhancements(){
+  const ctx=growthRows(),rows=ctx.rows,years=ctx.years;
+  renderSummary(rows,ctx.base,years);
+  renderPeriodTable('dmGrowthSemester',periodRows(rows,years,6,'S'));
+  renderPeriodTable('dmGrowthQuarter',periodRows(rows,years,3,'T'));
+  renderPeriodTable('dmGrowthFourMonth',periodRows(rows,years,4,'Q'));
+  renderGrowthMap(rows,years);
+}
+function scheduleRender(){clearTimeout(scheduleRender.t);scheduleRender.t=setTimeout(renderGrowthEnhancements,20)}
+function init(){
+  renderGrowthEnhancements();
+  const ids=new Set(['ano','mes','semana','vendedor','cliente','area','grupo','familia','subfamilia','distrito']);
+  document.addEventListener('change',e=>{if(ids.has(e.target?.id))scheduleRender()},true);
+  document.addEventListener('input',e=>{if(e.target?.id==='artigoPesquisa')scheduleRender()},true);
+  document.addEventListener('click',e=>{if(e.target?.closest?.('.tab-btn[data-tab="tab-crescimento"]'))setTimeout(renderGrowthEnhancements,30)},true);
+  window.addEventListener('dm:data-ready',scheduleRender);
+  window.dmRefreshGrowthAccumulated=renderGrowthEnhancements;
+}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(init,300));else setTimeout(init,300);
+})();
+</script>
+
+<style id="dmGeoPeriodAnalysisStyles">
+#tab-geografia .dm-geo-period-panel{margin-bottom:22px}
+#tab-geografia .dm-geo-period-controls{display:grid;grid-template-columns:minmax(190px,1.2fr) minmax(160px,1fr) minmax(180px,1fr) minmax(170px,1fr) minmax(170px,1fr);gap:14px;align-items:end}
+#tab-geografia .dm-geo-period-kpi{border:1px solid var(--line);border-radius:14px;padding:11px 13px;background:linear-gradient(135deg,#fff,#f8fbff)}
+#tab-geografia .dm-geo-period-kpi span{display:block;color:var(--muted);font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.05em}
+#tab-geografia .dm-geo-period-kpi strong{display:block;font-size:22px;margin-top:5px}
+#tab-geografia #dmGeoDistrictPctChart{height:760px}
+#tab-geografia .dm-geo-pct-table{width:100%;border-collapse:collapse;margin-top:10px}
+#tab-geografia .dm-geo-pct-table th,#tab-geografia .dm-geo-pct-table td{padding:8px;border-bottom:1px solid var(--line);font-size:12px}
+#tab-geografia .dm-geo-pct-table th{font-size:10px;text-transform:uppercase;color:var(--muted)}
+#tab-geografia .dm-geo-pct-table .num{text-align:right;font-variant-numeric:tabular-nums}
+@media(max-width:900px){#tab-geografia .dm-geo-period-controls{grid-template-columns:1fr 1fr}}
+@media(max-width:600px){#tab-geografia .dm-geo-period-controls{grid-template-columns:1fr}#tab-geografia #dmGeoDistrictPctChart{height:620px!important}}
+</style>
+<script id="dmGeoPeriodAnalysisScript">
+(function(){
+'use strict';
+const $=id=>document.getElementById(id);
+const eur=n=>new Intl.NumberFormat('pt-PT',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(Number(n)||0);
+const pct=n=>(Number(n)||0).toFixed(1).replace('.',',')+'%';
+const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+const norm=v=>String(v??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\u00a0/g,' ').trim().toLowerCase();
+const filterLabel=v=>{try{return typeof cleanFilterLabel==='function'?cleanFilterLabel(v):String(v??'').trim()}catch(_){return String(v??'').trim()}};
+const allData=()=>{try{return typeof DATA!=='undefined'&&Array.isArray(DATA)?DATA:(Array.isArray(window.DATA)?window.DATA:[])}catch(_){return Array.isArray(window.DATA)?window.DATA:[]}};
+const visibleData=()=>{const a=allData();try{return typeof roleVisibleRows==='function'?roleVisibleRows(a):a}catch(_){return a}};
+function value(id){return String($(id)?.value??'').trim()}
+function eq(a,b){return !b||norm(a)===norm(b)}
+function weekNo(v){const m=String(v||'').match(/\d{1,2}/);return m?Number(m[0]):0}
+function globalFilteredRows(){
+ let rows=visibleData().slice();
+ const y=Number(value('ano')||0),mo=Number(value('mes')||0),wk=value('semana'),seller=value('vendedor'),client=value('cliente'),group=value('grupo'),family=value('familia'),subfamily=value('subfamilia'),district=value('distrito');
+ const area=value('dmGeoArea')||value('area');
+ const q=norm(value('artigoPesquisa'));
+ return rows.filter(r=>(!y||Number(r.ano)===y)&&(!mo||Number(r.mes)===mo)&&(!wk||((weekNo(wk)&&weekNo(r.semana))?weekNo(r.semana)===weekNo(wk):eq(r.semana,wk)))&&eq(r.vendedor,seller)&&eq(r.cliente,client)&&eq(r.area,area)&&eq(r.grupo,group)&&eq(r.familia,family)&&eq(r.subfamilia,subfamily)&&eq(r.distrito,district)&&(!q||norm((r.search_blob||'')+' '+(r.artigo||'')+' '+(r.descricao||'')+' '+(r.artigo_desc||'')).includes(q)));
+}
+function syncGeoAreaOptions(fromGlobal=true){
+ const geo=$('dmGeoArea'),global=$('area');if(!geo)return;const old=geo.value;let opts=[];
+ if(global&&global.options?.length)opts=[...global.options].map(o=>[o.value,o.textContent||o.value]);
+ else{const vals=[...new Set(visibleData().map(r=>filterLabel(r.area)).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt'));opts=[['','Todas as áreas'],...vals.map(v=>[v,v])];}
+ geo.innerHTML=opts.map(([v,t])=>`<option value="${esc(v)}">${esc(t||v||'Todas as áreas')}</option>`).join('');
+ const wanted=fromGlobal&&global?global.value:old;const exact=[...geo.options].find(o=>norm(o.value)===norm(wanted));geo.value=exact?exact.value:'';
+}
+function applyGeoArea(){
+ const geo=$('dmGeoArea'),global=$('area');if(!geo)return;
+ if(global){const match=[...global.options].find(o=>norm(o.value)===norm(geo.value));global.value=match?match.value:'';}
+ render();try{if(typeof update==='function')setTimeout(()=>{update();setTimeout(render,0)},0)}catch(_){}
+}
+function periodConfig(){
+ const type=value('dmGeoPeriodType')||'year',v=value('dmGeoPeriodValue')||'all';
+ if(type==='semester')return v==='2'?{start:7,end:12,label:'2.º Semestre · Jul–Dez'}:{start:1,end:6,label:'1.º Semestre · Jan–Jun'};
+ if(type==='quarter'){const n=Math.max(1,Math.min(4,Number(v)||1)),start=(n-1)*3+1;return{start,end:start+2,label:'T'+n};}
+ if(type==='fourmonth'){const n=Math.max(1,Math.min(3,Number(v)||1)),start=(n-1)*4+1;return{start,end:start+3,label:'Q'+n};}
+ return{start:1,end:12,label:'Ano completo'};
+}
+function populateValues(){
+ const type=value('dmGeoPeriodType')||'year',sel=$('dmGeoPeriodValue');if(!sel)return;const old=sel.value;let a;
+ if(type==='semester')a=[['1','1.º Semestre (Jan–Jun)'],['2','2.º Semestre (Jul–Dez)']];
+ else if(type==='quarter')a=[['1','T1 (Jan–Mar)'],['2','T2 (Abr–Jun)'],['3','T3 (Jul–Set)'],['4','T4 (Out–Dez)']];
+ else if(type==='fourmonth')a=[['1','Q1 (Jan–Abr)'],['2','Q2 (Mai–Ago)'],['3','Q3 (Set–Dez)']];
+ else a=[['all','Ano completo']];
+ sel.innerHTML=a.map(([v,t])=>`<option value="${v}">${t}</option>`).join('');if(a.some(x=>x[0]===old))sel.value=old;
+}
+function periodRows(){const c=periodConfig();return globalFilteredRows().filter(r=>{const m=Number(r.mes);return m>=c.start&&m<=c.end});}
+function districtName(v){try{return typeof normDistrictName==='function'?normDistrictName(v):filterLabel(v)}catch(_){return filterLabel(v)}}
+function districtData(rows){
+ const m=new Map();for(const r of rows){const n=districtName(r.distrito);if(!n||norm(n)==='n/d'||norm(n)==='nd')continue;const x=m.get(n)||{name:n,value:0};x.value+=Number(r.valor_liquido)||0;m.set(n,x);}
+ const a=[...m.values()].sort((x,y)=>y.value-x.value),total=a.reduce((s,x)=>s+x.value,0);a.forEach(x=>x.pct=total?x.value/total*100:0);return a;
+}
+function renderMap(rows){
+ const root=$('chartPortugal');if(!root)return;const panel=root.closest('.panel');if(panel){panel.classList.add('dm-chart-open');const ph=panel.querySelector('.dm-lazy-chart-placeholder');if(ph)ph.style.display='none';}
+ const data=districtData(rows);if(!data.length){root.classList.add('empty');root.innerHTML='<div class="empty"><b>Sem dados de distrito para os filtros selecionados.</b><br>O filtro está aplicado, mas estas linhas não têm distrito associado.</div>';return;}
+ const by=new Map(data.map(x=>[districtName(x.name),x]));
+ const districts=[['Viana do Castelo',360,70],['Braga',430,115],['Vila Real',525,130],['Bragança',630,120],['Porto',430,195],['Aveiro',430,285],['Viseu',530,260],['Guarda',635,275],['Coimbra',460,370],['Castelo Branco',600,405],['Leiria',420,475],['Santarém',500,560],['Lisboa',405,665],['Portalegre',610,575],['Setúbal',455,760],['Évora',590,720],['Beja',555,850],['Faro',555,965],['Açores',180,900],['Madeira',250,1010]];
+ const max=Math.max(1,...data.map(x=>x.value)),total=data.reduce((s,x)=>s+x.value,0),w=1000,h=1120;let svg=`<svg viewBox="0 0 ${w} ${h}"><defs><filter id="geoV4Shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#0f172a" flood-opacity="0.14"/></filter></defs><path d="M385 55 C490 55 620 65 690 150 C745 220 720 325 660 405 C735 520 710 650 640 750 C610 835 620 920 565 1010 C500 965 465 870 435 785 C375 700 350 600 390 505 C350 430 345 330 395 245 C365 175 345 105 385 55 Z" fill="#f8fbff" stroke="#cbd5e1" stroke-width="5"/>`;
+ districts.forEach(([name,x,y])=>{const row=by.get(districtName(name)),v=row?.value||0,share=total?v/total*100:0,ratio=v/max,rad=38+ratio*42,op=v?(.28+ratio*.65):.08;svg+=`<circle cx="${x}" cy="${y}" r="${rad}" fill="var(--accent)" opacity="${op}" stroke="#fff" stroke-width="5" filter="url(#geoV4Shadow)"><title>${esc(name)}: ${eur(v)} · ${pct(share)}</title></circle><text class="label" x="${x}" y="${y+4}" text-anchor="middle" style="font-size:19px">${esc(name)}</text><text class="value" x="${x}" y="${y+29}" text-anchor="middle" style="font-size:16px">${v?pct(share):''}</text>`;});
+ const top=data.slice(0,8);svg+=`<text class="value" x="730" y="95">Top distritos</text>`;top.forEach((r,i)=>svg+=`<text class="label" x="730" y="${135+i*44}" style="font-size:18px">${esc(r.name)}</text><text class="value" x="970" y="${135+i*44}" text-anchor="end" style="font-size:18px">${pct(r.pct)}</text>`);svg+='</svg>';root.classList.remove('empty');root.innerHTML=svg;
+}
+function renderPctChart(data){
+ const root=$('dmGeoDistrictPctChart');if(!root)return;if(!data.length){root.classList.add('empty');root.innerHTML='Sem dados';const t=$('dmGeoDistrictPctTable');if(t)t.innerHTML='';return;}
+ const shown=data.slice(0,20),w=1200,rowH=45,top=55,left=245,right=120,h=Math.max(470,top+shown.length*rowH+35),max=Math.max(1,...shown.map(d=>d.pct));let svg=`<svg viewBox="0 0 ${w} ${h}"><line x1="${left}" y1="${top-15}" x2="${left}" y2="${h-25}" class="axis"/>`;
+ shown.forEach((d,i)=>{const y=top+i*rowH,bw=(w-left-right)*(d.pct/max);svg+=`<text x="${left-12}" y="${y+18}" text-anchor="end" class="label" style="font-size:15px">${esc(d.name)}</text><rect x="${left}" y="${y}" width="${Math.max(2,bw)}" height="25" rx="7" fill="var(--accent)" opacity=".88"><title>${esc(d.name)}: ${pct(d.pct)} · ${eur(d.value)}</title></rect><text x="${Math.min(w-right+12,left+bw+10)}" y="${y+18}" class="value" style="font-size:15px">${pct(d.pct)}</text>`;});svg+='</svg>';root.classList.remove('empty');root.innerHTML=svg;
+ const table=$('dmGeoDistrictPctTable');if(table)table.innerHTML=`<table class="dm-geo-pct-table"><thead><tr><th>Distrito</th><th class="num">Vendas</th><th class="num">% do total</th></tr></thead><tbody>${data.map(d=>`<tr><td>${esc(d.name)}</td><td class="num">${eur(d.value)}</td><td class="num"><b>${pct(d.pct)}</b></td></tr>`).join('')}</tbody></table>`;
+}
+function render(){
+ const rows=periodRows(),d=districtData(rows),c=periodConfig(),total=rows.reduce((a,r)=>a+(Number(r.valor_liquido)||0),0),area=value('dmGeoArea')||value('area')||'Todas as áreas';
+ if($('dmGeoPeriodTotal'))$('dmGeoPeriodTotal').textContent=eur(total);if($('dmGeoDistrictCount'))$('dmGeoDistrictCount').textContent=String(d.length);
+ if($('dmGeoPeriodNote'))$('dmGeoPeriodNote').innerHTML=`<b>Área: ${esc(area)}</b> · ${esc(c.label)} · <b>${rows.length} linhas</b> · <b>${d.length} distritos</b> · mapa recalculado diretamente.`;
+ renderMap(rows);renderPctChart(d);
+}
+function init(){
+ syncGeoAreaOptions(true);populateValues();$('dmGeoArea')?.addEventListener('change',applyGeoArea);$('dmGeoPeriodType')?.addEventListener('change',()=>{populateValues();render()});$('dmGeoPeriodValue')?.addEventListener('change',render);
+ const ids=new Set(['ano','mes','semana','vendedor','cliente','area','grupo','familia','subfamilia','distrito']);document.addEventListener('change',e=>{if(ids.has(e.target?.id)){if(e.target.id==='area')syncGeoAreaOptions(true);setTimeout(render,0)}},true);document.addEventListener('input',e=>{if(e.target?.id==='artigoPesquisa')setTimeout(render,60)},true);document.addEventListener('click',e=>{if(e.target?.closest?.('.tab-btn[data-tab="tab-geografia"]'))setTimeout(()=>{syncGeoAreaOptions(true);render()},80)},true);
+ [500,1200,2500].forEach(ms=>setTimeout(()=>{if($('tab-geografia')?.classList.contains('active'))render()},ms));window.dmRefreshGeoPeriods=render;
+}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(init,400));else setTimeout(init,400);
+})();
 </script>
 </body>
 </html>

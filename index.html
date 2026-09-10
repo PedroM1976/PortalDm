@@ -477,6 +477,7 @@ main,.panel,.card,.filter,.tables,.grid,.tab-panel{min-width:0}
   #commercialAreaChart{height:auto!important;aspect-ratio:2.4/1!important;min-height:460px!important;max-height:650px!important}
 }
 </style>
+
 </head>
 <body class="dm-preauth-lock">
 <style id="dmPreAuthNoFlash">
@@ -9573,5 +9574,144 @@ body.dm-visitas-active button[data-dm-visit-pdf-hidden="1"]{display:none!importa
   mo.observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:['class']});
 })();
 </script>
+
+
+<!-- Correção 2026-09-10 v4: hamburger funcional; removido duplo listener; primeiro gráfico de cada aba aberto por defeito. -->
+<style id="dm20260910ChartHamburgerFinalFix">
+.panel.dm-lazy-chart-panel{position:relative!important}
+.panel.dm-lazy-chart-panel > .dm-lazy-chart-toolbar{
+  display:flex!important;
+  justify-content:flex-end!important;
+  align-items:center!important;
+  position:absolute!important;
+  top:14px!important;
+  right:16px!important;
+  z-index:20!important;
+  pointer-events:none!important;
+}
+.panel.dm-lazy-chart-panel > .dm-lazy-chart-toolbar .dm-lazy-chart-btn{
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  width:38px!important;
+  height:36px!important;
+  padding:0!important;
+  border-radius:10px!important;
+  background:#172033!important;
+  color:#fff!important;
+  border:1px solid rgba(255,255,255,.15)!important;
+  box-shadow:0 6px 18px rgba(15,23,42,.18)!important;
+  pointer-events:auto!important;
+}
+.panel.dm-lazy-chart-panel > .dm-lazy-chart-toolbar .dm-lazy-chart-btn:hover,
+.panel.dm-lazy-chart-panel > .dm-lazy-chart-toolbar .dm-lazy-chart-btn[aria-expanded="true"]{
+  background:#0657ff!important;
+}
+.panel.dm-lazy-chart-panel > .dm-lazy-chart-toolbar .dm-lazy-chart-btn .bars{
+  display:flex!important;
+  width:18px!important;
+  height:14px!important;
+  flex-direction:column!important;
+  justify-content:space-between!important;
+}
+.panel.dm-lazy-chart-panel > .dm-lazy-chart-toolbar .dm-lazy-chart-btn .bars i{
+  display:block!important;
+  width:100%!important;
+  height:2px!important;
+  border-radius:999px!important;
+  background:currentColor!important;
+}
+.panel.dm-lazy-chart-panel > h2{padding-right:52px!important}
+@media(max-width:760px){
+  .panel.dm-lazy-chart-panel > .dm-lazy-chart-toolbar{top:10px!important;right:10px!important}
+  .panel.dm-lazy-chart-panel > .dm-lazy-chart-toolbar .dm-lazy-chart-btn{width:36px!important;height:34px!important}
+}
+@media print{.panel.dm-lazy-chart-panel > .dm-lazy-chart-toolbar{display:none!important}}
+</style>
+
+<script id="dm20260910ChartDefaultOpenFinalFix">
+(function(){
+'use strict';
+
+function ensureHamburger(panel){
+  if(!panel || !panel.classList.contains('dm-lazy-chart-panel')) return;
+  let toolbar=panel.querySelector(':scope > .dm-lazy-chart-toolbar');
+  if(!toolbar){
+    toolbar=document.createElement('div');
+    toolbar.className='dm-lazy-chart-toolbar';
+    const btn=document.createElement('button');
+    btn.type='button';
+    btn.className='dm-lazy-chart-btn';
+    btn.title='Abrir/fechar gráfico';
+    btn.setAttribute('aria-label','Abrir ou fechar gráfico');
+    btn.innerHTML='<span class="bars" aria-hidden="true"><i></i><i></i><i></i></span>';
+    toolbar.appendChild(btn);
+    const h2=panel.querySelector(':scope > h2');
+    if(h2) h2.insertAdjacentElement('afterend',toolbar); else panel.prepend(toolbar);
+  }
+  const btn=toolbar.querySelector('.dm-lazy-chart-btn');
+  if(!btn) return;
+
+  const sync=()=>btn.setAttribute('aria-expanded',panel.classList.contains('dm-chart-open')?'true':'false');
+  sync();
+  if(btn.dataset.dmFinalBound==='1') return;
+  btn.dataset.dmFinalBound='1';
+  btn.addEventListener('click',function(e){
+    e.preventDefault();
+    e.stopPropagation();
+    if(panel.classList.contains('dm-chart-open')){
+      panel.classList.remove('dm-chart-open');
+    }else{
+      const ph=panel.querySelector(':scope > .dm-lazy-chart-placeholder');
+      if(ph && getComputedStyle(ph).display!=='none') ph.click();
+      else panel.classList.add('dm-chart-open');
+      window.dispatchEvent(new Event('resize'));
+    }
+    sync();
+  });
+}
+
+function openFirstChartOfEachTab(){
+  document.querySelectorAll('.tab-panel').forEach(function(tab){
+    const firstChart=tab.querySelector('.chart');
+    if(!firstChart) return;
+    const firstPanel=firstChart.closest('.panel');
+    if(!firstPanel || !firstPanel.classList.contains('dm-lazy-chart-panel')) return;
+
+    /* Só força o primeiro se nesta aba ainda não existir nenhum gráfico aberto.
+       Assim não interfere com escolhas feitas pelo utilizador depois do arranque. */
+    if(!tab.querySelector('.panel.dm-lazy-chart-panel.dm-chart-open')){
+      const ph=firstPanel.querySelector(':scope > .dm-lazy-chart-placeholder');
+      if(ph && !firstPanel.classList.contains('dm-chart-open')) ph.click();
+      else firstPanel.classList.add('dm-chart-open');
+    }
+  });
+}
+
+function run(initial){
+  document.querySelectorAll('.panel.dm-lazy-chart-panel').forEach(ensureHamburger);
+  if(initial) openFirstChartOfEachTab();
+  document.querySelectorAll('.panel.dm-lazy-chart-panel').forEach(ensureHamburger);
+}
+
+if(document.readyState==='loading'){
+  document.addEventListener('DOMContentLoaded',function(){
+    setTimeout(()=>run(true),1500);
+    setTimeout(()=>run(true),2600);
+  });
+}else{
+  setTimeout(()=>run(true),1500);
+  setTimeout(()=>run(true),2600);
+}
+
+/* Novos gráficos/painéis que apareçam depois (abas/CRM) recebem apenas o menu.
+   O estado de abertura escolhido pelo utilizador não é alterado. */
+new MutationObserver(function(){setTimeout(()=>run(false),30)}).observe(document.documentElement,{childList:true,subtree:true});
+document.addEventListener('click',function(e){
+  if(e.target && e.target.closest && e.target.closest('.tab-btn,[data-tab]')) setTimeout(()=>run(false),80);
+},true);
+})();
+</script>
+
 </body>
 </html>

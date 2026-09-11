@@ -1,3 +1,5 @@
+<!-- Otimização de rapidez 2026-09-11 v5: removidas recalculações KPI pesadas a cada 250ms/1s; mantém atualização por data-ready, login e focus. Sem alteração à lógica de datas/filtros. -->
+<!-- Correção 2026-09-11 v4: normalização robusta de ano na própria data (26/0026→2026), mantendo mês pela DATA VENDA e sem processamento extra por linha. -->
 <!-- Alteração 2026-09-11: Gestão de Visitas em cascata Distrito > Zona > Cliente; Zona opcional permite ir diretamente aos clientes do distrito. -->
 <!-- Correção 2026-09-11: gráficos hamburger renderizam imediatamente; Zona em Clientes/Rotas/cartões; observer otimizado. -->
 <!-- Correção 2026-09-10: retorno do Calendário de Visitas à Gestão Comercial restaura/recarrega o iframe sem ecrã branco. -->
@@ -768,6 +770,36 @@ function salesMetaValue(row,names,requiredTokens=[]){
 function salesClientGroup(row){return salesMetaValue(row,['GRUPO DE CLIENTE','GRUPO CLIENTE','GRUPO_CLIENTE','GRUPO_DE_CLIENTE','GRUPOCLIENTE','GRUPO DE CLIENTES','GRUPO CLIENTES','CLIENT GROUP'],['GRUPO','CLIENT']);}
 function salesAssociated(row){return salesMetaValue(row,['ASSOCIADO','ASSOCIADOS','CLIENTE ASSOCIADO','CLIENTE_ASSOCIADO','ASSOCIATED CLIENT'],['ASSOCI']);}
 function n(v){ if(v===null||v===undefined||v==='') return 0; if(typeof v==='number') return v; return parseFloat(String(v).replace(/\s/g,'').replace(/\./g,'').replace(',','.'))||0;}
+function dmNormalizeYear(value){
+ let y=Number(value)||0;
+ // Alguns registos antigos chegam como 26 em vez de 2026.
+ if(y>0&&y<100)y=(y>=70?1900:2000)+y;
+ return y;
+}
+function dmDateISO(value){
+ const raw=String(value??'').trim();
+ if(!raw)return '';
+ // Caminho rápido para datas ISO vindas do Supabase (evita regex em milhares de linhas).
+ if(raw.length>=10&&raw[4]==='-'&&raw[7]==='-'){
+   const yRaw=raw.slice(0,4),m=raw.slice(5,7),d=raw.slice(8,10);
+   if(/^\d{4}$/.test(yRaw)&&/^\d{2}$/.test(m)&&/^\d{2}$/.test(d)){
+     const y=dmNormalizeYear(yRaw); // inclui 0026 -> 2026
+     return `${String(y).padStart(4,'0')}-${m}-${d}`;
+   }
+ }
+ // Aceita DD/MM/AAAA e DD/MM/AA (também com - ou .).
+ const pt=raw.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2}|\d{4})/);
+ if(pt){
+   const y=dmNormalizeYear(pt[3]);
+   return `${String(y).padStart(4,'0')}-${String(pt[2]).padStart(2,'0')}-${String(pt[1]).padStart(2,'0')}`;
+ }
+ return '';
+}
+function dmSalePeriod(dataVenda,dataDocumento,fallbackAno=0,fallbackMes=0){
+ // dataVenda/dataDocumento já chegam normalizadas por dmDateISO: não voltar a processá-las.
+ const iso=dataVenda||dataDocumento||'';
+ return iso?{iso,ano:dmNormalizeYear(iso.slice(0,4)),mes:Number(iso.slice(5,7))}:{iso:'',ano:dmNormalizeYear(fallbackAno),mes:Number(fallbackMes)||0};
+}
 function rowToData(r){
  const artigo=String(val(r,['ARTIGO','REFERENCIA','CÓDIGO','CODIGO'])||'N/D');
  const desc=String(val(r,['DESCRIÇAO','DESCRICAO','DESCRIÇÃO','DESIGNACAO','DESIGNAÇÃO'])||'');
@@ -784,13 +816,19 @@ function rowToData(r){
  if(valorLiquido<0 && margemCalculada>0) margemCalculada=-Math.abs(margemCalculada);
  const areaRaw=cleanFilterLabel(val(r,['AREA DE NEGOCIO','ÁREA DE NEGÓCIO','AREA','ÁREA']));
  const areaFinal=(!areaRaw||['N/D','ND','NAO ATRIBUIDO','NÃO ATRIBUÍDO','SEM AREA','SEM ÁREA'].includes(norm(areaRaw)))?'CAMPOS LIVRES':areaRaw;
- const dataDocumento=String(val(r,['DATA DOCUMENTO','DATA DO DOCUMENTO','DATA_DOCUMENTO','DATA DOC','DATA_DOC'])||'').slice(0,10);
+ const dataDocumento=dmDateISO(val(r,['DATA DOCUMENTO','DATA DO DOCUMENTO','DATA_DOCUMENTO','DATA DOC','DATA_DOC']));
+ const dataVenda=dmDateISO(val(r,['DATA VENDA','DATA DA VENDA','DATA_VENDA']));
+ // Correção 2026-09-11 v2: o mês/ano comercial são sempre determinados pela data real da venda.
+ // A semana continua independente; uma venda de 31/08 permanece em Agosto mesmo que pertença à semana 36.
+ const periodo=dmSalePeriod(dataVenda,dataDocumento,n(val(r,['ANO','YEAR'])),n(val(r,['MÊS','MES','MONTH'])));
+ const periodoAno=periodo.ano;
+ const periodoMes=periodo.mes;
  return {
-   ano:Number(n(val(r,['ANO','YEAR'])))||0,
-   mes:Number(n(val(r,['MÊS','MES','MONTH'])))||0,
+   ano:periodoAno||dmNormalizeYear(n(val(r,['ANO','YEAR']))),
+   mes:periodoMes||(Number(n(val(r,['MÊS','MES','MONTH'])))||0),
    semana:cleanFilterLabel(val(r,['SEMANA','SEMANA ISO','Nº SEMANA','NUMERO SEMANA','NÚMERO SEMANA','WEEK'])),
    data_documento:dataDocumento,
-   data_venda:String(val(r,['DATA VENDA','DATA DA VENDA','DATA_VENDA'])||'').slice(0,10),
+   data_venda:dataVenda,
    cliente:String(val(r,['CLIENTES','CLIENTE','CUSTOMER'])||'N/D'),
    nif:String(val(r,['CONTRIBUINTE','NIF','VAT'])||''),
    email:String(val(r,['EMAIL','E-MAIL'])||''),
@@ -1396,13 +1434,17 @@ async function loadSupabaseSales(preserveFilters=false){
    const margem=temMargem ? n(r.margem) : valorLiquido-n(r.pcusto);
    const areaRaw=cleanFilterLabel(r.area);
    const areaFinal=(!areaRaw||['N/D','ND','NAO ATRIBUIDO','NÃO ATRIBUÍDO','SEM AREA','SEM ÁREA'].includes(norm(areaRaw)))?'CAMPOS LIVRES':areaRaw;
-   const dataDocumento=String(r.data_documento||r.data_doc||r.data_document||r.data_fatura||'').slice(0,10);
+   const dataDocumento=dmDateISO(r.data_documento||r.data_doc||r.data_document||r.data_fatura||'');
+   const dataVenda=dmDateISO(r.data_venda||r.data_da_venda||r.dataVenda||'');
+   // Correção 2026-09-11 v2: também na leitura direta do Supabase, ANO/MÊS vêm da DATA VENDA.
+   // Só usa os campos ano/mes antigos se não existir qualquer data válida.
+   const periodo=dmSalePeriod(dataVenda,dataDocumento,r.ano,r.mes);
    return {
-     ano:Number(n(r.ano))||0,
-     mes:Number(n(r.mes))||0,
+     ano:periodo.ano,
+     mes:periodo.mes,
      semana:cleanFilterLabel(r.semana),
      data_documento:dataDocumento,
-     data_venda:String(r.data_venda||'').slice(0,10),
+     data_venda:dataVenda,
      cliente:String(r.cliente||'N/D'),
      nif:String(r.nif||''),
      email:String(r.email||''),
@@ -8457,7 +8499,7 @@ function burst(){refresh();requestAnimationFrame(refresh);[0,30,80,160,300,600,1
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',burst,{once:true});else burst();
 document.addEventListener('click',e=>{if(e.target?.closest?.('#authSubmit'))setTimeout(burst,0);if(e.target?.closest?.('#authLogout'))setTimeout(burst,20)},true);
 window.addEventListener('dm:data-ready',burst);window.addEventListener('focus',refresh);
-let last='';let ticks=0;const timer=setInterval(()=>{ticks++;const a=rawRows(),sig=user()+'|'+a.length+'|'+(a[0]?.data_venda||'')+'|'+(a[a.length-1]?.data_venda||'');if(sig!==last){last=sig;burst()}else if(SELLERS[user()])refresh();if(ticks>80)clearInterval(timer)},250);
+let last='';let ticks=0;const timer=setInterval(()=>{ticks++;const a=rawRows(),sig=user()+'|'+a.length+'|'+(a[0]?.data_venda||'')+'|'+(a[a.length-1]?.data_venda||'');if(sig!==last){last=sig;burst()}if(ticks>15)clearInterval(timer)},1000);
 window.dmRefreshSellerPeriodKpis=burst;
 })();
 </script>
@@ -9216,7 +9258,7 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
 window.addEventListener('dm:data-ready',burst);
 window.addEventListener('focus',apply);
 document.addEventListener('click',e=>{if(e.target?.closest?.('#authSubmit,#authLogout'))setTimeout(burst,0)},true);
-let lastUser='';setInterval(()=>{const u=currentUser();if(u!==lastUser){lastUser=u;burst()}else apply()},1000);
+let lastUser=currentUser();setInterval(()=>{const u=currentUser();if(u!==lastUser){lastUser=u;burst()}},5000);
 window.dmForceCurrentMonthKpi=burst;
 })();
 </script>

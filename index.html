@@ -1,3 +1,4 @@
+<!-- Alteração 2026-09-11: Gestão de Visitas em cascata Distrito > Zona > Cliente; Zona opcional permite ir diretamente aos clientes do distrito. -->
 <!-- Correção 2026-09-11: gráficos hamburger renderizam imediatamente; Zona em Clientes/Rotas/cartões; observer otimizado. -->
 <!-- Correção 2026-09-10: retorno do Calendário de Visitas à Gestão Comercial restaura/recarrega o iframe sem ecrã branco. -->
 <!-- Otimização visual 2026-09-10 v2: gráfico principal aberto; removidos botões hamburger dos gráficos lazy. -->
@@ -6304,6 +6305,7 @@ body.dm-clientes-no-scroll{overflow:hidden}
       <div class="visit-form">
        <div class="filter" id="visitUserWrap"><label>Utilizador</label><select id="visitUser"></select></div>
        <div class="filter"><label>Distrito</label><select id="visitCreateDistrict"><option value="">Todos os distritos</option></select></div>
+       <div class="filter"><label>Zona</label><select id="visitCreateZone" disabled><option value="">Todas as zonas</option></select></div>
        <div class="filter visit-wide"><label>Cliente</label><input id="visitClient" list="visitClientList" type="text" placeholder="Escolha primeiro o distrito e depois o cliente"><datalist id="visitClientList"></datalist></div>
        <div class="filter"><label>Data</label><input id="visitDate" type="date"></div>
        <div class="filter"><label>Hora</label><input id="visitTime" type="time"></div>
@@ -6343,6 +6345,12 @@ body.dm-clientes-no-scroll{overflow:hidden}
    ['visitFilterUser','visitFilterStatus','visitFilterDistrict'].forEach(id=>$(id)?.addEventListener('change',render));
    $('visitCreateDistrict')?.addEventListener('change',()=>{
      const client=$('visitClient');if(client)client.value='';
+     const zone=$('visitCreateZone');if(zone)zone.value='';
+     populateVisitZones(true);
+     populateClients(true);
+   });
+   $('visitCreateZone')?.addEventListener('change',()=>{
+     const client=$('visitClient');if(client)client.value='';
      populateClients(true);
    });
    $('visitFilterClient')?.addEventListener('input',render);
@@ -6372,7 +6380,8 @@ body.dm-clientes-no-scroll{overflow:hidden}
        const crmRows=await dmLoadCrmClientes();
        visitMasterClients=(crmRows||[]).map(r=>({
          name:visitField(r,['cliente','nome','name','razao social','razão social','designacao','designação','empresa','customer']),
-         district:visitField(r,['distrito','district','distrito cliente','distrito do cliente','zona','concelho']),
+         district:visitField(r,['distrito','district','distrito cliente','distrito do cliente']),
+         zone:visitField(r,['zona','zone','zona cliente','zona do cliente','zona comercial','sales zone']),
          source:visitField(r,['source_key','origem','base','base de clientes','source'])
        })).filter(x=>x.name);
        populateClients(true);
@@ -6384,23 +6393,40 @@ body.dm-clientes-no-scroll{overflow:hidden}
  function visitAllClientRecords(){
    const rows=(typeof DATA!=='undefined'&&Array.isArray(DATA))?DATA:(Array.isArray(window.DATA)?window.DATA:[]),map=new Map();
    const keyOf=name=>clean(name).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleUpperCase('pt-PT');
-   const validDistrict=d=>{d=clean(d);return d&&!['N/D','ND','—'].includes(d.toLocaleUpperCase('pt-PT'))};
-   const add=(name,district,source,preferDistrict=false)=>{
-     name=clean(name);district=clean(district);if(!name)return;
-     const key=keyOf(name),prev=map.get(key)||{name,district:'',source:''};
-     // O CRM é a ficha-mestra do cliente: quando contém distrito, esse valor
-     // prevalece sobre o distrito herdado de uma venda antiga.
-     if(validDistrict(district) && (preferDistrict || !validDistrict(prev.district)))prev.district=district;
-     if(source && (preferDistrict || !prev.source))prev.source=source;
+   const validGeo=d=>{d=clean(d);return d&&!['N/D','ND','—'].includes(d.toLocaleUpperCase('pt-PT'))};
+   const add=(name,district,zone,source,preferMaster=false)=>{
+     name=clean(name);district=clean(district);zone=clean(zone);if(!name)return;
+     const key=keyOf(name),prev=map.get(key)||{name,district:'',zone:'',source:''};
+     // O CRM é a ficha-mestra: distrito e zona válidos do CRM prevalecem
+     // sobre valores herdados de vendas antigas.
+     if(validGeo(district) && (preferMaster || !validGeo(prev.district)))prev.district=district;
+     if(validGeo(zone) && (preferMaster || !validGeo(prev.zone)))prev.zone=zone;
+     if(source && (preferMaster || !prev.source))prev.source=source;
      map.set(key,prev);
    };
-   rows.forEach(r=>add(r?.cliente,r?.distrito,'Vendas',false));
-   visitMasterClients.forEach(r=>add(r.name,r.district,r.source||'CRM',true));
+   rows.forEach(r=>add(r?.cliente,visitField(r,['distrito','district']),visitField(r,['zona','zone','zona comercial']),'Vendas',false));
+   visitMasterClients.forEach(r=>add(r.name,r.district,r.zone,r.source||'CRM',true));
    return [...map.values()];
  }
  function visitClientDistrictMap(){
    const keyOf=name=>clean(name).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleUpperCase('pt-PT');
    const map=new Map();visitAllClientRecords().forEach(r=>{if(r.district)map.set(keyOf(r.name),r.district)});return map;
+ }
+ function visitClientZoneMap(){
+   const keyOf=name=>clean(name).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleUpperCase('pt-PT');
+   const map=new Map();visitAllClientRecords().forEach(r=>{if(r.zone)map.set(keyOf(r.name),r.zone)});return map;
+ }
+ function populateVisitZones(force=false){
+   const sel=$('visitCreateZone');if(!sel)return;
+   const district=clean($('visitCreateDistrict')?.value);
+   const norm=v=>typeof normDistrictName==='function'?normDistrictName(clean(v)):clean(v).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleUpperCase('pt-PT');
+   const wanted=norm(district);
+   const zones=[...new Set(visitAllClientRecords().filter(r=>!district||norm(r.district)===wanted).map(r=>clean(r.zone)).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt',{sensitivity:'base'}));
+   const old=sel.value,sig=district+'|'+zones.join('¦');if(!force&&sel.dataset.dmZoneSig===sig)return;
+   sel.innerHTML='<option value="">Todas as zonas · ir diretamente ao cliente</option>'+zones.map(z=>`<option value="${esc(z)}">${esc(z)}</option>`).join('');
+   sel.disabled=!district;
+   if(zones.includes(old))sel.value=old;else sel.value='';
+   sel.dataset.dmZoneSig=sig;
  }
  function populateVisitDistricts(){
    const map=visitClientDistrictMap();
@@ -6417,18 +6443,24 @@ body.dm-clientes-no-scroll{overflow:hidden}
    const filter=$('visitFilterUser');if(filter){const old=filter.value;filter.innerHTML='<option value="">Todos os utilizadores</option>'+Object.entries(USERS).map(([id,label])=>`<option value="${esc(id)}">${esc(label)}</option>`).join('');if([...filter.options].some(o=>o.value===old))filter.value=old;}
    ['visitFilterUserWrap','visitFilterClientWrap','visitFilterStatusWrap'].forEach(id=>{const el=$(id);if(el)el.style.display=isPriv?'block':'none'});
    const districtWrap=$('visitFilterDistrictWrap');if(districtWrap)districtWrap.style.display=(isPriv||isSeller)?'block':'none';
-   populateVisitDistricts();loadVisitMasterClients();if(!isPriv&&sel)sel.value=u;
+   populateVisitDistricts();populateVisitZones();loadVisitMasterClients();if(!isPriv&&sel)sel.value=u;
  }
  let visitClientsCache={rows:null,length:-1,lastKey:'',values:[]};
  function existingClients(){return visitAllClientRecords().map(x=>x.name).sort((a,b)=>a.localeCompare(b,'pt',{sensitivity:'base'}));}
  function populateClients(force=false){
-   populateVisitDistricts();const dl=$('visitClientList');if(!dl)return;
-   const district=clean($('visitCreateDistrict')?.value),districtMap=visitClientDistrictMap();let clients=existingClients();
-   const normDistrict=v=>typeof normDistrictName==='function'?normDistrictName(clean(v)):clean(v).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleUpperCase('pt-PT');
-   if(district){const wanted=normDistrict(district);clients=clients.filter(name=>normDistrict(districtMap.get(clean(name).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleUpperCase('pt-PT'))||'')===wanted)}
-   const sig=district+'|'+clients.length+'|'+(clients[0]||'')+'|'+(clients[clients.length-1]||'');if(!force&&dl.dataset.dmClientsSig===sig)return;
+   populateVisitDistricts();populateVisitZones();const dl=$('visitClientList');if(!dl)return;
+   const district=clean($('visitCreateDistrict')?.value),zone=clean($('visitCreateZone')?.value),districtMap=visitClientDistrictMap(),zoneMap=visitClientZoneMap();let clients=existingClients();
+   const keyOf=name=>clean(name).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleUpperCase('pt-PT');
+   const norm=v=>typeof normDistrictName==='function'?normDistrictName(clean(v)):clean(v).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleUpperCase('pt-PT');
+   if(district){const wanted=norm(district);clients=clients.filter(name=>norm(districtMap.get(keyOf(name))||'')===wanted)}
+   if(zone){const wantedZone=norm(zone);clients=clients.filter(name=>norm(zoneMap.get(keyOf(name))||'')===wantedZone)}
+   const sig=district+'|'+zone+'|'+clients.length+'|'+(clients[0]||'')+'|'+(clients[clients.length-1]||'');if(!force&&dl.dataset.dmClientsSig===sig)return;
    dl.innerHTML=clients.map(x=>`<option value="${esc(x)}"></option>`).join('');dl.dataset.dmClientsSig=sig;
-   const input=$('visitClient');if(input)input.placeholder=district?(clients.length?`Escolha um cliente de ${district}`:`Sem clientes associados a ${district}`):'Escolha primeiro o distrito e depois o cliente';
+   const input=$('visitClient');if(input){
+     if(!district)input.placeholder='Escolha primeiro o distrito e depois o cliente';
+     else if(zone)input.placeholder=clients.length?`Escolha um cliente de ${district} · ${zone}`:`Sem clientes em ${district} · ${zone}`;
+     else input.placeholder=clients.length?`Escolha uma zona ou vá diretamente a um cliente de ${district}`:`Sem clientes associados a ${district}`;
+   }
  }
  let visitRequestSeq=0;
  async function loadRowsCore(force=false){
@@ -6535,12 +6567,18 @@ body.dm-clientes-no-scroll{overflow:hidden}
    return `<div class="visit-event ${cancelled?'cancelled':''} ${realized?'realized':''} ${pending?'request-pending':''} ${info?'cc-info':''}" data-visit-id="${esc(r.id)}">${canCancel?`<button class="visit-cancel" data-visit-cancel="${esc(r.id)}" type="button" title="Anular visita">×</button>`:''}<b>${realized?'<span class="visit-done-check">✓</span> ':''}${esc(time||'--:--')} · ${esc(r.cliente||'Sem cliente')}</b><small>${esc(userLabel(r.utilizador))} · ${esc(r.tipo_visita||'Visita comercial')}</small>${pending?`<small><b>Pedido pendente do CCenter</b>${r.observacoes?' · '+esc(visibleVisitNotes(r.observacoes)):''}</small>${canRespond?`<div class="visit-request-actions"><button type="button" data-portal-request-accept="${esc(requestId)}" data-visit-id="${esc(r.id)}">Aceitar</button><button type="button" data-portal-request-move="${esc(requestId)}" data-visit-id="${esc(r.id)}">Outra data</button><button type="button" data-portal-request-reject="${esc(requestId)}" data-visit-id="${esc(r.id)}">Recusar</button></div>`:''}`:(cancelled?`<small>Anulada${r.motivo_anulacao?' · clique para ver motivo':''}</small>`:(realized?(info?'<small>Contacto registado pelo CCenter</small>':'<small>Realizada · relatório finalizado</small>'):(visibleVisitNotes(r.observacoes)?`<small>${esc(visibleVisitNotes(r.observacoes))}</small>`:'')))}</div>`;
  }
  async function addVisit(){
-   const u=privileged()?($('visitUser')?.value||currentUser()):currentUser(),district=clean($('visitCreateDistrict')?.value),client=clean($('visitClient')?.value),date=$('visitDate')?.value||'',time=$('visitTime')?.value||'',type=$('visitType')?.value||'Visita comercial',notes=clean($('visitNotes')?.value);
+   const u=privileged()?($('visitUser')?.value||currentUser()):currentUser(),district=clean($('visitCreateDistrict')?.value),zone=clean($('visitCreateZone')?.value),client=clean($('visitClient')?.value),date=$('visitDate')?.value||'',time=$('visitTime')?.value||'',type=$('visitType')?.value||'Visita comercial',notes=clean($('visitNotes')?.value);
    if(!u||!client||!date||!time){alert('Preencha cliente, data e hora.');return}
    const clients=existingClients(),matched=clients.find(x=>x.localeCompare(client,'pt',{sensitivity:'base'})===0)||null;
    if(district&&matched){
      const clientDistrict=clean(visitClientDistrictMap().get(clean(matched).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleUpperCase('pt-PT'))||'');
      if(clientDistrict.toLocaleUpperCase('pt-PT')!==district.toLocaleUpperCase('pt-PT')){alert('O cliente selecionado não pertence ao distrito '+district+'.');return}
+   }
+   if(zone&&matched){
+     const key=clean(matched).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleUpperCase('pt-PT');
+     const clientZone=clean(visitClientZoneMap().get(key)||'');
+     const norm=v=>clean(v).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleUpperCase('pt-PT');
+     if(norm(clientZone)!==norm(zone)){alert('O cliente selecionado não pertence à zona '+zone+'.');return}
    }
    const payload={utilizador:u,utilizador_nome:userLabel(u),cliente:client,cliente_original:matched,data_visita:date,hora_visita:time,tipo_visita:type,estado:'ativa',observacoes:notes||null,anulada:false,atualizado_em:new Date().toISOString()};
    status('A guardar visita…');$('visitAdd').disabled=true;

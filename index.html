@@ -1,3 +1,4 @@
+<!-- Otimização 2026-09-26: filtros Grupo de Cliente + Associado; pesquisa com debounce; metadados pré-calculados. -->
 <!-- Otimização de rapidez 2026-09-11 v5: removidas recalculações KPI pesadas a cada 250ms/1s; mantém atualização por data-ready, login e focus. Sem alteração à lógica de datas/filtros. -->
 <!-- Correção 2026-09-11 v4: normalização robusta de ano na própria data (26/0026→2026), mantendo mês pela DATA VENDA e sem processamento extra por linha. -->
 <!-- Alteração 2026-09-11: Gestão de Visitas em cascata Distrito > Zona > Cliente; Zona opcional permite ir diretamente aos clientes do distrito. -->
@@ -514,6 +515,8 @@ body.dm-preauth-lock{background:linear-gradient(135deg,#081a3a,#0657ff)!importan
   <div class="filter"><label>Semana</label><select id="semana"></select></div>
   <div class="filter"><label>Vendedor</label><select id="vendedor"></select></div>
   <div class="filter"><label>Cliente</label><select id="cliente"></select></div>
+  <div class="filter"><label>Grupo de Cliente</label><select id="grupoCliente"></select></div>
+  <div class="filter"><label>Associado</label><select id="associado"></select></div>
   <div class="filter"><label>Área</label><select id="area"></select></div>
   <div class="filter"><label>Grupo</label><select id="grupo"></select></div>
   <div class="filter"><label>Família</label><select id="familia"></select></div>
@@ -716,7 +719,7 @@ body.dm-preauth-lock{background:linear-gradient(135deg,#081a3a,#0657ff)!importan
   <div id="drawerBody" class="drawer-body"></div>
 </aside>
 <script>
-let DATA=[], META={anos:[],vendedores:[],clientes:[],areas:[],grupos:[]}, currentFile=null, fileHandle=null, timer=null, autoExcelSource=false;
+let DATA=[], META={anos:[],vendedores:[],clientes:[],gruposClientes:[],associados:[],areas:[],grupos:[]}, currentFile=null, fileHandle=null, timer=null, autoExcelSource=false;
 const DEFAULT_EXCEL_BASENAME='Vendas_preenchido_062026';
 const DEFAULT_EXCEL_CANDIDATES=[
   DEFAULT_EXCEL_BASENAME+'.xlsx',
@@ -853,7 +856,7 @@ function rowToData(r){
    valor_total:valorTotalCalculado,
    margem:margemCalculada,
    comissao:n(val(r,['VALOR_COMISSAO','COMISSAO VENDEDOR','COMISSÃO VENDEDOR'])),
-   search_blob:norm(artigo+' '+desc+' '+String(val(r,['CLIENTES','CLIENTE','CUSTOMER'])||''))
+   search_blob:norm(artigo+' '+desc+' '+String(val(r,['CLIENTES','CLIENTE','CUSTOMER'])||'')+' '+String(salesClientGroup(r)||'')+' '+String(salesAssociated(r)||''))
  };
 }
 function buildMeta(){
@@ -862,6 +865,8 @@ function buildMeta(){
    anos,
    vendedores:canonicalizeField('vendedor'),
    clientes:canonicalizeField('cliente'),
+   gruposClientes:canonicalizeField('grupo_cliente'),
+   associados:canonicalizeField('associado'),
    areas:canonicalizeField('area'),
    grupos:canonicalizeField('grupo'),
    familias:canonicalizeField('familia'),
@@ -945,6 +950,8 @@ function initSelects(){
    }
  }
  fillSelect('cliente',META.clientes);
+ fillSelect('grupoCliente',META.gruposClientes||[]);
+ fillSelect('associado',META.associados||[]);
  fillSelect('area',META.areas);
  fillSelect('grupo',META.grupos);
  fillSelect('familia',META.familias||[]);
@@ -952,7 +959,7 @@ function initSelects(){
 }
 document.querySelectorAll('select').forEach(s=>{if(!s.__dmUpdateBound){s.__dmUpdateBound=true;s.addEventListener('change',update)}});
 setTimeout(()=>{const ws=$('semana');if(ws&&!ws.__dmWeekKpiFix){ws.__dmWeekKpiFix=true;ws.addEventListener('change',()=>{requestAnimationFrame(update)})}},0);
-setTimeout(()=>{ const ap=$('artigoPesquisa'); if(ap) ap.addEventListener('input',update); },0);
+setTimeout(()=>{ const ap=$('artigoPesquisa'); if(ap&&!ap.__dmFastSearchBound){ ap.__dmFastSearchBound=true; let t=0; ap.addEventListener('input',()=>{clearTimeout(t);t=setTimeout(()=>requestAnimationFrame(update),180)}); } },0);
 function filtered(){
  const q=norm(($('artigoPesquisa')&&$('artigoPesquisa').value)||'');
  const yearValue=Number(($('ano')&&$('ano').value)||0);
@@ -961,6 +968,8 @@ function filtered(){
  const weekNumber=value=>{const m=String(value||'').match(/\d{1,2}/);return m?Number(m[0]):0};
  const sellerValue=($('vendedor')&&$('vendedor').value)||'';
  const clientValue=($('cliente')&&$('cliente').value)||'';
+ const clientGroupValue=($('grupoCliente')&&$('grupoCliente').value)||'';
+ const associatedValue=($('associado')&&$('associado').value)||'';
  const areaValue=($('area')&&$('area').value)||'';
  const groupValue=($('grupo')&&$('grupo').value)||'';
  const familyValue=($('familia')&&$('familia').value)||'';
@@ -971,6 +980,8 @@ function filtered(){
    (!weekValue||((weekNumber(weekValue)&&weekNumber(r.semana))?weekNumber(r.semana)===weekNumber(weekValue):cleanFilterLabel(r.semana)===weekValue))&&
    (!sellerValue||r.vendedor===sellerValue)&&
    (!clientValue||r.cliente===clientValue)&&
+   (!clientGroupValue||r.grupo_cliente===clientGroupValue)&&
+   (!associatedValue||r.associado===associatedValue)&&
    (!areaValue||r.area===areaValue)&&
    (!groupValue||r.grupo===groupValue)&&
    (!familyValue||r.familia===familyValue)&&
@@ -1320,7 +1331,7 @@ function parseCSVText(text){
 }
 async function parseFile(file,preserveFilters=false){
  if(!file) throw new Error('Nenhum ficheiro selecionado.');
- const filterIds=['ano','mes','semana','vendedor','cliente','area','grupo','familia','subfamilia','distrito'];
+ const filterIds=['ano','mes','semana','vendedor','cliente','grupoCliente','associado','area','grupo','familia','subfamilia','distrito'];
  const previousFilters=preserveFilters
    ? Object.fromEntries(filterIds.map(id=>[id,document.getElementById(id)?.value||'']))
    : {};
@@ -1469,7 +1480,7 @@ async function loadSupabaseSales(preserveFilters=false){
      valor_total:(r.valor_total!==null&&r.valor_total!==undefined)?n(r.valor_total):valorLiquido+valorIva,
      margem,
      comissao:n(r.valor_comissao||r.comissao),
-     search_blob:norm(artigo+' '+desc+' '+String(r.cliente||''))
+     search_blob:norm(artigo+' '+desc+' '+String(r.cliente||'')+' '+String(salesClientGroup(r)||'')+' '+String(salesAssociated(r)||''))
    };
  });
  window.DATA=DATA;
@@ -2178,6 +2189,9 @@ h1{font-size:24px}
     <div class="head"><div><h1>Calendário comercial</h1><div class="sub">${cEsc(calendarState.month.toLocaleDateString('pt-PT',{month:'long',year:'numeric'}))}</div></div>${logo?`<img src="${logo}">`:''}</div>
     <table><thead><tr><th>Data</th><th>Hora</th><th>Vendedor</th><th>Área de negócio</th><th>Assunto</th><th>Cliente</th></tr></thead><tbody>${events.map(e=>`<tr><td>${cEsc(e.date)}</td><td>${cEsc(e.time)}</td><td>${cEsc(e.seller)}</td><td>${cEsc(e.area||'')}</td><td>${cEsc(e.subject)}</td><td>${cEsc(e.client||'')}</td></tr>`).join('')}</tbody></table>
     <div class="credit">Desenvolvido By Pedro Morgado</div>
+
+
+
 
 
 
@@ -8882,11 +8896,11 @@ function allVisibleRows(){
 }
 function eq(a,b){return !b||norm(a)===norm(b)}
 function passesNonYearFilters(r,{ignoreMonth=false,ignoreWeek=false}={}){
-  const month=Number(val('mes')||0),week=val('semana'),seller=val('vendedor'),client=val('cliente'),area=val('area'),group=val('grupo'),family=val('familia'),subfamily=val('subfamilia'),district=val('distrito');
+  const month=Number(val('mes')||0),week=val('semana'),seller=val('vendedor'),client=val('cliente'),clientGroup=val('grupoCliente'),associated=val('associado'),area=val('area'),group=val('grupo'),family=val('familia'),subfamily=val('subfamilia'),district=val('distrito');
   const q=norm(val('artigoPesquisa'));
   if(!ignoreMonth&&month&&Number(r.mes)!==month)return false;
   if(!ignoreWeek&&week){const a=weekNo(week),b=weekNo(r.semana);if(a&&b){if(a!==b)return false}else if(norm(r.semana)!==norm(week))return false}
-  if(!eq(r.vendedor,seller)||!eq(r.cliente,client)||!eq(r.area,area)||!eq(r.grupo,group)||!eq(r.familia,family)||!eq(r.subfamilia,subfamily)||!eq(r.distrito,district))return false;
+  if(!eq(r.vendedor,seller)||!eq(r.cliente,client)||!eq(r.grupo_cliente,clientGroup)||!eq(r.associado,associated)||!eq(r.area,area)||!eq(r.grupo,group)||!eq(r.familia,family)||!eq(r.subfamilia,subfamily)||!eq(r.distrito,district))return false;
   if(q&&!norm((r.search_blob||'')+' '+(r.artigo||'')+' '+(r.descricao||'')+' '+(r.artigo_desc||'')).includes(q))return false;
   return true;
 }
@@ -9008,10 +9022,10 @@ function eq(a,b){return !b||norm(a)===norm(b)}
 function weekNo(v){const m=String(v||'').match(/\d{1,2}/);return m?Number(m[0]):0}
 function globalFilteredRows(){
  let rows=visibleData().slice();
- const y=Number(value('ano')||0),mo=Number(value('mes')||0),wk=value('semana'),seller=value('vendedor'),client=value('cliente'),group=value('grupo'),family=value('familia'),subfamily=value('subfamilia'),district=value('distrito');
+ const y=Number(value('ano')||0),mo=Number(value('mes')||0),wk=value('semana'),seller=value('vendedor'),client=value('cliente'),clientGroup=value('grupoCliente'),associated=value('associado'),group=value('grupo'),family=value('familia'),subfamily=value('subfamilia'),district=value('distrito');
  const area=value('dmGeoArea')||value('area');
  const q=norm(value('artigoPesquisa'));
- return rows.filter(r=>(!y||Number(r.ano)===y)&&(!mo||Number(r.mes)===mo)&&(!wk||((weekNo(wk)&&weekNo(r.semana))?weekNo(r.semana)===weekNo(wk):eq(r.semana,wk)))&&eq(r.vendedor,seller)&&eq(r.cliente,client)&&eq(r.area,area)&&eq(r.grupo,group)&&eq(r.familia,family)&&eq(r.subfamilia,subfamily)&&eq(r.distrito,district)&&(!q||norm((r.search_blob||'')+' '+(r.artigo||'')+' '+(r.descricao||'')+' '+(r.artigo_desc||'')).includes(q)));
+ return rows.filter(r=>(!y||Number(r.ano)===y)&&(!mo||Number(r.mes)===mo)&&(!wk||((weekNo(wk)&&weekNo(r.semana))?weekNo(r.semana)===weekNo(wk):eq(r.semana,wk)))&&eq(r.vendedor,seller)&&eq(r.cliente,client)&&eq(r.grupo_cliente,clientGroup)&&eq(r.associado,associated)&&eq(r.area,area)&&eq(r.grupo,group)&&eq(r.familia,family)&&eq(r.subfamilia,subfamily)&&eq(r.distrito,district)&&(!q||norm((r.search_blob||'')+' '+(r.artigo||'')+' '+(r.descricao||'')+' '+(r.artigo_desc||'')).includes(q)));
 }
 function syncGeoAreaOptions(fromGlobal=true){
  const geo=$('dmGeoArea'),global=$('area');if(!geo)return;const old=geo.value;let opts=[];

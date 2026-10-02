@@ -65,7 +65,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Portal DM</title>
+<meta name="dm-release" content="20261002-1630"><title>Portal DM</title>
 <!-- Otimização 2026-09-26: login não bloqueia no Supabase; preferências sincronizadas em background; refresh inicial faseado. -->
 <link rel="preconnect" href="https://lyihzeddgfbzmuqwrjya.supabase.co" crossorigin>
 <link rel="preconnect" href="https://cdn.sheetjs.com" crossorigin>
@@ -76,6 +76,8 @@
 (function(){'use strict';
 const globalUsers=new Set(['assistencia','administrador','comercial','jose_morgado','clara_morgado','mario_leal']);
 window.dmCanSeeGlobalSales=function(user){return globalUsers.has(user||sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||'')};
+window.dmResetSalesFiltersForUser=function(user){if(!window.dmCanSeeGlobalSales(user))return;for(const id of ['ano','mes','semana','vendedor','cliente','grupoCliente','associado','area','grupo','familia','subfamilia','distrito','artigoPesquisa','commercialSeller','commercialClient']){const el=document.getElementById(id);if(el){el.value='';if(id==='vendedor'||id==='commercialSeller'){el.disabled=false;el.removeAttribute('aria-disabled')}}}};
+
 })();
 </script>
 <script id="dmSupabaseAutoConfig">
@@ -967,11 +969,11 @@ function sellerForCurrentUser(){
  if(window.dmCanSeeGlobalSales(currentDashboardUser()))return '';
  // Apenas os vendedores individuais ficam limitados aos seus próprios dados.
  // Domingos Lopes, José Morgado, Clara Morgado e Mário Leal consultam os dados gerais nas abas autorizadas.
- const map={rui_ferreira:'RUI FERREIRA',joao_rebelo:'JOÃO REBELO',sandro_loureiro:'SANDRO LOUREIRO',ccenter:'CCENTER',clara_morgado:'CLARA MORGADO',mario_leal:'MARIO LEAL'};
+ const map={rui_ferreira:'RUI FERREIRA',joao_rebelo:'JOÃO REBELO',sandro_loureiro:'SANDRO LOUREIRO',ccenter:'CCENTER'};
  return map[currentDashboardUser()]||'';
 }
 function isCommercialProfile(){
- return !window.dmCanSeeGlobalSales(currentDashboardUser())&&['rui_ferreira','joao_rebelo','sandro_loureiro','ccenter','clara_morgado','mario_leal'].includes(currentDashboardUser());
+ return !window.dmCanSeeGlobalSales(currentDashboardUser())&&['rui_ferreira','joao_rebelo','sandro_loureiro','ccenter'].includes(currentDashboardUser());
 }
 function isExcludedCommercialSeller(value){
  const token=norm(cleanFilterLabel(value));
@@ -1493,7 +1495,7 @@ async function loadSupabaseSales(preserveFilters=false){
    const response=await fetch(url.href,{
      headers:{
        apikey:cfg.key,
-       Authorization:'Bearer '+cfg.key,
+       ...(cfg.key.startsWith('eyJ')?{Authorization:'Bearer '+cfg.key}:{}),
        Range:from+'-'+to,
      },
      cache:'no-store'
@@ -2538,7 +2540,7 @@ h1{font-size:24px}
  function current(){return sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||''}
  const PERSONAL_TARGET=40000;
  const PERSONAL_TARGETS={rui_ferreira:40000,joao_rebelo:40000,sandro_loureiro:40000,ccenter:15000};
- const PERSONAL_SELLERS={rui_ferreira:'Rui Ferreira',joao_rebelo:'João Rebelo',sandro_loureiro:'Sandro Loureiro',ccenter:'CCenter',clara_morgado:'Clara Morgado',mario_leal:'Mario Leal'};
+ const PERSONAL_SELLERS={rui_ferreira:'Rui Ferreira',joao_rebelo:'João Rebelo',sandro_loureiro:'Sandro Loureiro',ccenter:'CCenter'};
  function normSeller(v){return String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase()}
  function personalMonthlySales(user){
   if(!PERSONAL_SELLERS[user])return 0;
@@ -3108,7 +3110,7 @@ async function refresh(){
   function refreshFinanceWindows(){for(const [id,entry] of financeWindows){const w=entry.window;if(w.closed){financeWindows.delete(id);continue}try{w.postMessage(financeMessage(id),financeOrigin())}catch(_){}}}
   function openFinanceMenu(){
     if(!financeAccess().menu)return alert('Este utilizador não tem acesso ao Financeiro.');
-    const id=crypto.randomUUID(),url=new URL('menu_financeiro.html',location.href);url.hash='dmFinance='+encodeURIComponent(id);
+    const id=crypto.randomUUID(),url=new URL('menu_financeiro.html',location.href);url.searchParams.set('v','20261002-1630');url.hash='dmFinance='+encodeURIComponent(id);
     const w=window.open(url.href,'_blank','popup=yes,width=1180,height=820,resizable=yes,scrollbars=yes');
     if(!w)return alert('Permita a abertura de janelas para abrir o Financeiro.');
     financeWindows.set(id,{window:w,user:currentUser});
@@ -3152,7 +3154,7 @@ async function refresh(){
   function insertSessionControls(){
     const head=document.querySelector('header .head');if(!head||a$('logoutBtn'))return;
     const choices=Object.entries(THEMES).map(([key,t])=>`<button type="button" class="theme-choice" data-theme="${key}"><i style="background:${t.accent}"></i>${t.label}</button>`).join('');
-    const box=document.createElement('div');box.className='auth-session';box.innerHTML=`<div id="authUserLabel" class="auth-user"></div><div class="theme-picker"><button id="themeToggle" class="theme-toggle" type="button" title="Mudar cor do portal"><span id="themeCurrentDot" class="theme-dot"></span><span id="themeCurrentLabel">Azul</span> ▾</button><div id="themeMenu" class="theme-menu">${choices}</div></div><button id="dmFinanceButton" class="role-hidden" type="button">Financeiro ↗</button><button id="logoutBtn" type="button">Terminar sessão</button>`;
+    const box=document.createElement('div');box.className='auth-session';box.innerHTML=`<div id="authUserLabel" class="auth-user"></div><div class="theme-picker"><button id="themeToggle" class="theme-toggle" type="button" title="Mudar cor do portal"><span id="themeCurrentDot" class="theme-dot"></span><span id="themeCurrentLabel">Azul</span> ▾</button><div id="themeMenu" class="theme-menu">${choices}</div></div><small id="dmReleaseLabel" style="font-size:10px;opacity:.8">02/10 · 16:30</small><button id="dmFinanceButton" class="role-hidden" type="button">Financeiro ↗</button><button id="logoutBtn" type="button">Terminar sessão</button>`;
     head.appendChild(box);a$('dmFinanceButton').onclick=openFinanceMenu;a$('logoutBtn').onclick=logout;a$('themeToggle').onclick=e=>{e.stopPropagation();toggleThemeMenu()};
     document.querySelectorAll('.theme-choice').forEach(btn=>btn.onclick=()=>{applyTheme(btn.dataset.theme,true);a$('themeMenu')?.classList.remove('open')});
     document.addEventListener('click',e=>{if(!e.target.closest('.theme-picker'))a$('themeMenu')?.classList.remove('open')});
@@ -3546,6 +3548,7 @@ async function refresh(){
     document.body.classList.toggle('dm-margin-restricted',['rui_ferreira','joao_rebelo','sandro_loureiro','ccenter','clara_morgado','mario_leal'].includes(role)&&!window.dmCanSeeGlobalSales(role));
 
     // As preferências em localStorage são aplicadas imediatamente.
+    window.dmResetSalesFiltersForUser(role);
     applyRole();
 
     // Mostra o portal já no próximo frame, sem esperar pelo Supabase nem por gráficos.
@@ -3581,7 +3584,7 @@ async function refresh(){
     });
   }
   function logout(){window.dmResetCrmSession?.();try{window.dmClearUserContextView?.()}catch(_){}sessionStorage.removeItem('dmCurrentUser');window.dmCurrentUser='';currentUser=null;refreshFinanceWindows();a$('dmFinanceButton')?.classList.add('role-hidden');document.documentElement.removeAttribute('data-dm-user');document.body.classList.remove('dm-margin-restricted');applyTheme('blue');const sellerSelect=a$('vendedor');if(sellerSelect)sellerSelect.disabled=false;a$('authPassword').value='';a$('authError').textContent='';a$('authOverlay').classList.remove('hidden');document.body.classList.add('auth-locked','dm-preauth-lock')}
-  function boot(){insertLogin();insertSessionControls();insertAdminTab();insertWeeklyReportTab();const saved=sessionStorage.getItem('dmCurrentUser');if(saved&&AUTH_USERS[saved]){currentUser=saved;window.dmCurrentUser=saved;setTimeout(()=>refreshCurrentPermissions(true),0);document.documentElement.setAttribute('data-dm-user',saved);document.body.classList.toggle('dm-margin-restricted',['rui_ferreira','joao_rebelo','sandro_loureiro','ccenter','clara_morgado','mario_leal'].includes(saved)&&!window.dmCanSeeGlobalSales(saved));applyRole();try{if(typeof initSelects==='function'&&Array.isArray(DATA)&&DATA.length)initSelects()}catch(_){}try{if(typeof window.update==='function')window.update()}catch(_){}try{window.dmForceUserContextRefresh?.(saved)}catch(_){}try{window.dmRefreshGrowthAccumulated?.()}catch(_){}try{window.dmRefreshCrmForecast?.()}catch(_){}a$('authOverlay').classList.add('hidden');document.body.classList.remove('auth-locked','dm-preauth-lock');if(currentUser==='assistencia')saveAutomaticBackup();window.dmCheckWeeklyReport?.()}}
+  function boot(){insertLogin();insertSessionControls();insertAdminTab();insertWeeklyReportTab();const saved=sessionStorage.getItem('dmCurrentUser');if(saved&&AUTH_USERS[saved]){currentUser=saved;window.dmCurrentUser=saved;window.dmResetSalesFiltersForUser(saved);setTimeout(()=>refreshCurrentPermissions(true),0);document.documentElement.setAttribute('data-dm-user',saved);document.body.classList.toggle('dm-margin-restricted',['rui_ferreira','joao_rebelo','sandro_loureiro','ccenter','clara_morgado','mario_leal'].includes(saved)&&!window.dmCanSeeGlobalSales(saved));applyRole();try{if(typeof initSelects==='function'&&Array.isArray(DATA)&&DATA.length)initSelects()}catch(_){}try{if(typeof window.update==='function')window.update()}catch(_){}try{window.dmForceUserContextRefresh?.(saved)}catch(_){}try{window.dmRefreshGrowthAccumulated?.()}catch(_){}try{window.dmRefreshCrmForecast?.()}catch(_){}a$('authOverlay').classList.add('hidden');document.body.classList.remove('auth-locked','dm-preauth-lock');if(currentUser==='assistencia')saveAutomaticBackup();window.dmCheckWeeklyReport?.()}}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
 </script>
@@ -4361,7 +4364,7 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
 
 <script id="namedSellerResearchLock">
 (function(){
-  const map={rui_ferreira:'RUI FERREIRA',joao_rebelo:'JOÃO REBELO',sandro_loureiro:'SANDRO LOUREIRO',ccenter:'CCENTER',clara_morgado:'CLARA MORGADO',mario_leal:'MARIO LEAL'};
+  const map={rui_ferreira:'RUI FERREIRA',joao_rebelo:'JOÃO REBELO',sandro_loureiro:'SANDRO LOUREIRO',ccenter:'CCENTER'};
   const norm2=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase();
   function user(){return sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||''}
   function lockSelect(id){const own=id==='commercialSeller'&&window.dmCanSeeGlobalSales(user())?'':map[user()],s=document.getElementById(id);if(!s)return;if(!own){if(id==='commercialSeller'){s.disabled=false;s.removeAttribute('aria-disabled');}return}let option=[...s.options].find(o=>norm2(o.textContent)===norm2(own)||norm2(o.value)===norm2(own));if(!option){option=document.createElement('option');option.value=own;option.textContent=own;s.innerHTML='';s.appendChild(option)}else{[...s.options].forEach(o=>{if(o!==option)o.remove()})}s.value=option.value;s.disabled=true;s.setAttribute('aria-disabled','true')}
@@ -8781,7 +8784,7 @@ setTimeout(boot,300);setTimeout(boot,900);setInterval(()=>{if(!document.hidden)b
 (function(){
 'use strict';
 const $=id=>document.getElementById(id);
-const SELLERS={rui_ferreira:'RUI FERREIRA',joao_rebelo:'JOÃO REBELO',sandro_loureiro:'SANDRO LOUREIRO',ccenter:'CCENTER',clara_morgado:'CLARA MORGADO',mario_leal:'MARIO LEAL'};
+const SELLERS={rui_ferreira:'RUI FERREIRA',joao_rebelo:'JOÃO REBELO',sandro_loureiro:'SANDRO LOUREIRO',ccenter:'CCENTER'};
 const norm=v=>String(v??'').replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
 const money=v=>new Intl.NumberFormat('pt-PT',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(Number(v)||0);
 const number=v=>new Intl.NumberFormat('pt-PT',{maximumFractionDigits:0}).format(Number(v)||0);
@@ -9142,7 +9145,7 @@ document.addEventListener('click',e=>{if(e.target?.closest?.('.tab-btn[data-tab=
 <script id="dm20260824PersonalKpiHardGuard">
 (function(){
 'use strict';
-const SELLERS={rui_ferreira:'RUI FERREIRA',joao_rebelo:'JOÃO REBELO',sandro_loureiro:'SANDRO LOUREIRO',ccenter:'CCENTER',clara_morgado:'CLARA MORGADO',mario_leal:'MARIO LEAL'};
+const SELLERS={rui_ferreira:'RUI FERREIRA',joao_rebelo:'JOÃO REBELO',sandro_loureiro:'SANDRO LOUREIRO',ccenter:'CCENTER'};
 const $=id=>document.getElementById(id),user=()=>sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||'';
 const norm=v=>String(v??'').replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
 const rows=()=>{try{return (typeof DATA!=='undefined'&&Array.isArray(DATA))?DATA:(Array.isArray(window.DATA)?window.DATA:[])}catch(_){return Array.isArray(window.DATA)?window.DATA:[]}};
@@ -9519,7 +9522,7 @@ const observer=new MutationObserver(()=>{if(!document.querySelector('.dm-priorit
 <script id="dm20260902MonthKpiCurrentCalendarAllUsersFinal">
 (function(){
 'use strict';
-const SELLERS={rui_ferreira:'RUI FERREIRA',joao_rebelo:'JOÃO REBELO',sandro_loureiro:'SANDRO LOUREIRO',ccenter:'CCENTER',clara_morgado:'CLARA MORGADO',mario_leal:'MARIO LEAL'};
+const SELLERS={rui_ferreira:'RUI FERREIRA',joao_rebelo:'JOÃO REBELO',sandro_loureiro:'SANDRO LOUREIRO',ccenter:'CCENTER'};
 const $=id=>document.getElementById(id);
 const norm=v=>String(v??'').replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
 const currentUser=()=>sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||'';

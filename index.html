@@ -72,6 +72,12 @@
 <link rel="dns-prefetch" href="//unpkg.com">
 <link rel="dns-prefetch" href="//cdnjs.cloudflare.com">
 <link rel="dns-prefetch" href="//cdn.jsdelivr.net">
+<script id="dmSalesUserPermissions">
+(function(){'use strict';
+const globalUsers=new Set(['assistencia','administrador','comercial','jose_morgado','clara_morgado','mario_leal']);
+window.dmCanSeeGlobalSales=function(user){return globalUsers.has(user||sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||'')};
+})();
+</script>
 <script id="dmSupabaseAutoConfig">
 (function(){
   const DM_SUPABASE_URL = 'https://lyihzeddgfbzmuqwrjya.supabase.co';
@@ -958,13 +964,14 @@ function fillSelect(id, arr){
 }
 function currentDashboardUser(){ return sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||''; }
 function sellerForCurrentUser(){
+ if(window.dmCanSeeGlobalSales(currentDashboardUser()))return '';
  // Apenas os vendedores individuais ficam limitados aos seus próprios dados.
- // Domingos Lopes e José Morgado têm visão global, igual ao Administrador.
+ // Domingos Lopes, José Morgado, Clara Morgado e Mário Leal consultam os dados gerais nas abas autorizadas.
  const map={rui_ferreira:'RUI FERREIRA',joao_rebelo:'JOÃO REBELO',sandro_loureiro:'SANDRO LOUREIRO',ccenter:'CCENTER',clara_morgado:'CLARA MORGADO',mario_leal:'MARIO LEAL'};
  return map[currentDashboardUser()]||'';
 }
 function isCommercialProfile(){
- return ['rui_ferreira','joao_rebelo','sandro_loureiro','ccenter','clara_morgado','mario_leal'].includes(currentDashboardUser());
+ return !window.dmCanSeeGlobalSales(currentDashboardUser())&&['rui_ferreira','joao_rebelo','sandro_loureiro','ccenter','clara_morgado','mario_leal'].includes(currentDashboardUser());
 }
 function isExcludedCommercialSeller(value){
  const token=norm(cleanFilterLabel(value));
@@ -1164,6 +1171,7 @@ function monthlyChart(el, arr){
 
 // Segurança adicional: drill-down e detalhe são sempre limitados ao vendedor autenticado.
 function secureCurrentUserRows(rows){
+ if(window.dmCanSeeGlobalSales())return rows||[];
  const ownSeller=sellerForCurrentUser();
  if(!ownSeller) return rows||[];
  return (rows||[]).filter(r=>norm(cleanFilterLabel(r.vendedor))===norm(ownSeller));
@@ -3023,7 +3031,7 @@ async function refresh(){
     try{return JSON.parse(localStorage.getItem('dmSupabaseConfig')||'{}')||{}}catch(_){return {}}
   }
   function prefsHeaders(write=false){
-    const c=prefsSupabaseCfg(),h={apikey:c.key||'',Authorization:'Bearer '+(c.key||'')};
+    const c=prefsSupabaseCfg(),h={apikey:c.key||''};if(c.key?.startsWith('eyJ'))h.Authorization='Bearer '+c.key;
     if(write)h['Content-Type']='application/json';
     return h;
   }
@@ -3056,11 +3064,11 @@ async function refresh(){
     localStorage.setItem('dmUserPrefsByUser',JSON.stringify(store));
   }
   async function savePrefsToSupabase(user,prefs){
-    savePrefs(user,prefs); // cache imediato
     const c=prefsSupabaseCfg();if(!c.url||!c.key)throw new Error('Configuração do Supabase em falta.');
     const url=`${c.url}/rest/v1/${USER_PREFS_TABLE}?on_conflict=user_id`;
     const r=await fetch(url,{method:'POST',headers:{...prefsHeaders(true),Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({user_id:user,prefs,updated_at:new Date().toISOString()}),cache:'no-store'});
     if(!r.ok){const txt=await r.text();if(r.status===404||/PGRST205|does not exist|Could not find the table/i.test(txt))throw new Error('Tabela '+USER_PREFS_TABLE+' ainda não existe no Supabase.');throw new Error('Não foi possível guardar preferências no Supabase ('+r.status+'). '+txt)}
+    savePrefs(user,prefs);refreshFinanceWindows();
   }
   async function syncPrefsForLogin(user){
     try{
@@ -3075,6 +3083,17 @@ async function refresh(){
   window.dmLoadPrefsFromSupabase=loadPrefsFromSupabase;
   window.dmLoadAllPrefsFromSupabase=loadAllPrefsFromSupabase;
   window.dmSavePrefsToSupabase=savePrefsToSupabase;
+  let prefsRefreshPromise=null,prefsRefreshAt=0,prefsRefreshUser='';
+  async function refreshCurrentPermissions(force=false){
+    const user=currentUser;if(!user)return false;if(prefsRefreshPromise)return prefsRefreshUser===user?prefsRefreshPromise:prefsRefreshPromise.then(()=>refreshCurrentPermissions(true));if(!force&&Date.now()-prefsRefreshAt<15000)return false;prefsRefreshAt=Date.now();
+    const before=JSON.stringify(loadPrefs(user));prefsRefreshUser=user;
+    prefsRefreshPromise=(async()=>{try{await syncPrefsForLogin(user);if(currentUser!==user)return false;if(before!==JSON.stringify(loadPrefs(user))){applyRole();try{if(typeof initSelects==='function')initSelects();window.update?.();window.dmRefreshGrowthAccumulated?.();window.dmRefreshSellerPeriodKpis?.()}catch(_){}window.dispatchEvent(new Event('dm:permissions-updated'));}return window.dmPrefsSupabaseReady===true;}finally{prefsRefreshPromise=null;prefsRefreshUser=''}})();return prefsRefreshPromise;
+  }
+  window.dmRefreshPermissions=()=>refreshCurrentPermissions(true);
+  window.addEventListener('focus',()=>refreshCurrentPermissions());
+  window.addEventListener('storage',e=>{if(e.key==='dmUserPrefsByUser'&&currentUser){applyRole();try{if(typeof initSelects==='function')initSelects();window.update?.();window.dmRefreshGrowthAccumulated?.();window.dmRefreshSellerPeriodKpis?.()}catch(_){}window.dispatchEvent(new Event('dm:permissions-updated'));}});
+  setInterval(()=>{if(!document.hidden)refreshCurrentPermissions()},60000);
+
 
 
   // Financeiro: usa a sessão já validada pelo Portal e as mesmas preferências.
@@ -3147,7 +3166,7 @@ async function refresh(){
         <div class="smallnote">Área reservada ao perfil Assistência. Escolha o utilizador e defina as abas e ações disponíveis.</div>
         <div class="filter" style="max-width:420px;margin-top:18px"><label>Utilizador a configurar</label><select id="prefTargetUser">${Object.entries(AUTH_USERS).map(([id,u])=>`<option value="${id}">${u.label}</option>`).join('')}</select></div>
         <div id="adminPrefTabs" class="admin-pref-grid" style="margin-top:18px"></div>
-        <h2 style="margin-top:24px">Permissões adicionais</h2>
+        <h2 style="margin-top:24px">Permissões adicionais</h2><p class="smallnote">Mário Leal e Clara Morgado consultam a informação geral nas abas autorizadas. Selecione as abas e menus disponíveis para cada utilizador.</p>
         <div class="admin-pref-grid">
           <label class="admin-pref-item"><span>Exportar PDF</span><input id="prefAllowPdf" type="checkbox"></label>
           <label class="admin-pref-item"><span>Exportar CSV</span><input id="prefAllowCsv" type="checkbox"></label>
@@ -3412,7 +3431,7 @@ async function refresh(){
   function reportRowsFor(user,info){
     let rows=(window.DATA||DATA||[]).filter(r=>Number(r.ano)===Number(info.year)&&Number(String(r.semana||'').replace(/\D/g,''))===Number(info.week));
     const sellerMap={comercial:'DOMINGOS LOPES',rui_ferreira:'RUI FERREIRA',joao_rebelo:'JOÃO REBELO',sandro_loureiro:'SANDRO LOUREIRO',ccenter:'CCENTER',clara_morgado:'CLARA MORGADO',mario_leal:'MARIO LEAL'};
-    if(sellerMap[user])rows=rows.filter(r=>norm(cleanFilterLabel(r.vendedor))===norm(sellerMap[user]));
+    if(sellerMap[user]&&!window.dmCanSeeGlobalSales(user))rows=rows.filter(r=>norm(cleanFilterLabel(r.vendedor))===norm(sellerMap[user]));
     return rows;
   }
   function weeklyGroup(rows,key){const m=new Map();rows.forEach(r=>{const k=r[key]||'N/D';m.set(k,(m.get(k)||0)+(+r.valor_liquido||0))});return [...m.entries()].sort((a,b)=>b[1]-a[1])}
@@ -3464,9 +3483,9 @@ async function refresh(){
   async function saveAdminPrefs(){
     const target=a$('prefTargetUser').value,prefs=loadPrefs(target);document.querySelectorAll('[data-pref-tab]').forEach(el=>prefs.tabs[el.dataset.prefTab]=el.checked);prefs.allowPdf=a$('prefAllowPdf').checked;prefs.allowCsv=a$('prefAllowCsv').checked;prefs.allowCalendarEdit=a$('prefAllowCalendar').checked;prefs.allowManagement=a$('prefAllowManagement').checked;prefs.allowWeeklyReport=a$('prefAllowWeeklyReport')?.checked===true;prefs.allowClientPortal=a$('prefAllowClientPortal')?.checked===true;['Finance','FinanceClients','FinanceSuppliers'].forEach(k=>prefs['allow'+k]=a$('prefAllow'+k)?.checked===true);
     try{await savePrefsToSupabase(target,prefs);if(target===currentUser)applyRole();alert('Preferências guardadas no Supabase para '+AUTH_USERS[target].label+'. Ficam disponíveis em qualquer PC.')}
-    catch(e){alert('As preferências ficaram guardadas apenas neste PC porque não foi possível gravar no Supabase.\n\n'+(e.message||e));}
+    catch(e){alert('Não foi possível guardar as novas permissões no Supabase. As permissões anteriores mantêm-se.\n\n'+(e.message||e));}
   }
-  async function resetTargetPrefs(){const target=a$('prefTargetUser').value,prefs=defaultFor(target);try{await savePrefsToSupabase(target,prefs);renderAdminPrefs();if(target===currentUser)applyRole();alert('Preferências repostas no Supabase para '+AUTH_USERS[target].label+'.')}catch(e){renderAdminPrefs();alert('Reposição guardada apenas neste PC.\n\n'+(e.message||e));}}
+  async function resetTargetPrefs(){const target=a$('prefTargetUser').value,prefs=defaultFor(target);try{await savePrefsToSupabase(target,prefs);renderAdminPrefs();if(target===currentUser)applyRole();alert('Preferências repostas no Supabase para '+AUTH_USERS[target].label+'.')}catch(e){renderAdminPrefs();alert('Não foi possível guardar a reposição. As permissões anteriores mantêm-se.\n\n'+(e.message||e));}}
   function activateTab(id){document.querySelectorAll('.tab-btn').forEach(x=>x.classList.toggle('active',x.dataset.tab===id));document.querySelectorAll('.tab-panel').forEach(x=>x.classList.toggle('active',x.id===id))}
   function applyRole(){
     const prefs=loadPrefs(currentUser),isAssist=privileged();document.querySelectorAll('.tab-btn[data-tab],.tab-panel').forEach(el=>el.classList.remove('role-hidden'));document.querySelectorAll('.assistance-only').forEach(el=>el.classList.toggle('role-hidden',!isAssist));
@@ -3524,7 +3543,7 @@ async function refresh(){
     window.dmCurrentUser=role;
     sessionStorage.setItem('dmCurrentUser',role);
     document.documentElement.setAttribute('data-dm-user',role);
-    document.body.classList.toggle('dm-margin-restricted',['rui_ferreira','joao_rebelo','sandro_loureiro','ccenter','clara_morgado','mario_leal'].includes(role));
+    document.body.classList.toggle('dm-margin-restricted',['rui_ferreira','joao_rebelo','sandro_loureiro','ccenter','clara_morgado','mario_leal'].includes(role)&&!window.dmCanSeeGlobalSales(role));
 
     // As preferências em localStorage são aplicadas imediatamente.
     applyRole();
@@ -3556,14 +3575,13 @@ async function refresh(){
       // Sincroniza permissões centrais em background. Só reaplica depois de chegar.
       setTimeout(async()=>{
         try{
-          await syncPrefsForLogin(role);
-          if(currentUser===role) applyRole();
+          if(currentUser===role)await refreshCurrentPermissions(true);
         }catch(_){}
       },700);
     });
   }
   function logout(){window.dmResetCrmSession?.();try{window.dmClearUserContextView?.()}catch(_){}sessionStorage.removeItem('dmCurrentUser');window.dmCurrentUser='';currentUser=null;refreshFinanceWindows();a$('dmFinanceButton')?.classList.add('role-hidden');document.documentElement.removeAttribute('data-dm-user');document.body.classList.remove('dm-margin-restricted');applyTheme('blue');const sellerSelect=a$('vendedor');if(sellerSelect)sellerSelect.disabled=false;a$('authPassword').value='';a$('authError').textContent='';a$('authOverlay').classList.remove('hidden');document.body.classList.add('auth-locked','dm-preauth-lock')}
-  function boot(){insertLogin();insertSessionControls();insertAdminTab();insertWeeklyReportTab();const saved=sessionStorage.getItem('dmCurrentUser');if(saved&&AUTH_USERS[saved]){currentUser=saved;document.documentElement.setAttribute('data-dm-user',saved);document.body.classList.toggle('dm-margin-restricted',['rui_ferreira','joao_rebelo','sandro_loureiro','ccenter','clara_morgado','mario_leal'].includes(saved));applyRole();try{if(typeof initSelects==='function'&&Array.isArray(DATA)&&DATA.length)initSelects()}catch(_){}try{if(typeof window.update==='function')window.update()}catch(_){}try{window.dmForceUserContextRefresh?.(saved)}catch(_){}try{window.dmRefreshGrowthAccumulated?.()}catch(_){}try{window.dmRefreshCrmForecast?.()}catch(_){}a$('authOverlay').classList.add('hidden');document.body.classList.remove('auth-locked','dm-preauth-lock');if(currentUser==='assistencia')saveAutomaticBackup();window.dmCheckWeeklyReport?.()}}
+  function boot(){insertLogin();insertSessionControls();insertAdminTab();insertWeeklyReportTab();const saved=sessionStorage.getItem('dmCurrentUser');if(saved&&AUTH_USERS[saved]){currentUser=saved;window.dmCurrentUser=saved;setTimeout(()=>refreshCurrentPermissions(true),0);document.documentElement.setAttribute('data-dm-user',saved);document.body.classList.toggle('dm-margin-restricted',['rui_ferreira','joao_rebelo','sandro_loureiro','ccenter','clara_morgado','mario_leal'].includes(saved)&&!window.dmCanSeeGlobalSales(saved));applyRole();try{if(typeof initSelects==='function'&&Array.isArray(DATA)&&DATA.length)initSelects()}catch(_){}try{if(typeof window.update==='function')window.update()}catch(_){}try{window.dmForceUserContextRefresh?.(saved)}catch(_){}try{window.dmRefreshGrowthAccumulated?.()}catch(_){}try{window.dmRefreshCrmForecast?.()}catch(_){}a$('authOverlay').classList.add('hidden');document.body.classList.remove('auth-locked','dm-preauth-lock');if(currentUser==='assistencia')saveAutomaticBackup();window.dmCheckWeeklyReport?.()}}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
 </script>
@@ -4346,9 +4364,9 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
   const map={rui_ferreira:'RUI FERREIRA',joao_rebelo:'JOÃO REBELO',sandro_loureiro:'SANDRO LOUREIRO',ccenter:'CCENTER',clara_morgado:'CLARA MORGADO',mario_leal:'MARIO LEAL'};
   const norm2=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase();
   function user(){return sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||''}
-  function lockSelect(id){const own=map[user()],s=document.getElementById(id);if(!own||!s)return;let option=[...s.options].find(o=>norm2(o.textContent)===norm2(own)||norm2(o.value)===norm2(own));if(!option){option=document.createElement('option');option.value=own;option.textContent=own;s.innerHTML='';s.appendChild(option)}else{[...s.options].forEach(o=>{if(o!==option)o.remove()})}s.value=option.value;s.disabled=true;s.setAttribute('aria-disabled','true')}
-  function enforce(){lockSelect('commercialSeller');lockSelect('calendarSeller');const own=map[user()];if(!own)return;const c=document.getElementById('commercialSeller');if(c&&c.dataset.dmLockedValue!==c.value){c.dataset.dmLockedValue=c.value;c.dispatchEvent(new Event('change',{bubbles:true}))}}
-  function startEnforce(){enforce();document.addEventListener('visibilitychange',()=>{if(!document.hidden)enforce()});window.addEventListener('focus',enforce);document.querySelector('.tabs')?.addEventListener('click',()=>setTimeout(enforce,0));setInterval(()=>{if(!document.hidden)enforce()},3000)}
+  function lockSelect(id){const own=id==='commercialSeller'&&window.dmCanSeeGlobalSales(user())?'':map[user()],s=document.getElementById(id);if(!s)return;if(!own){if(id==='commercialSeller'){s.disabled=false;s.removeAttribute('aria-disabled');}return}let option=[...s.options].find(o=>norm2(o.textContent)===norm2(own)||norm2(o.value)===norm2(own));if(!option){option=document.createElement('option');option.value=own;option.textContent=own;s.innerHTML='';s.appendChild(option)}else{[...s.options].forEach(o=>{if(o!==option)o.remove()})}s.value=option.value;s.disabled=true;s.setAttribute('aria-disabled','true')}
+  function enforce(){lockSelect('commercialSeller');lockSelect('calendarSeller');const own=window.dmCanSeeGlobalSales(user())?'':map[user()];if(!own)return;const c=document.getElementById('commercialSeller');if(c&&c.dataset.dmLockedValue!==c.value){c.dataset.dmLockedValue=c.value;c.dispatchEvent(new Event('change',{bubbles:true}))}}
+  function startEnforce(){enforce();window.addEventListener('dm:permissions-updated',()=>{const c=document.getElementById('commercialSeller');if(c&&window.dmCanSeeGlobalSales(user())){c.value='';c.disabled=false;c.dispatchEvent(new Event('change',{bubbles:true}));}enforce()});document.addEventListener('visibilitychange',()=>{if(!document.hidden)enforce()});window.addEventListener('focus',enforce);document.querySelector('.tabs')?.addEventListener('click',()=>setTimeout(enforce,0));setInterval(()=>{if(!document.hidden)enforce()},3000)}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',startEnforce);else startEnforce();
 })();
 </script>
@@ -7366,7 +7384,7 @@ function baseRows(){
  try{return typeof roleVisibleRows==='function'?roleVisibleRows(rows):rows}catch(e){return rows}
 }
 function validDate(v){return /^\d{4}-\d{2}-\d{2}$/.test(String(v||''))}
-function dmDailyMarginRestricted(){return ['rui_ferreira','joao_rebelo','sandro_loureiro','ccenter','clara_morgado','mario_leal'].includes(sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||'')}
+function dmDailyMarginRestricted(){if(window.dmCanSeeGlobalSales())return false;return ['rui_ferreira','joao_rebelo','sandro_loureiro','ccenter','clara_morgado','mario_leal'].includes(sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||'')}
 function fmtDate(v,long=true){if(!validDate(v))return v||'—';const d=new Date(v+'T12:00:00');return d.toLocaleDateString('pt-PT',long?{weekday:'long',day:'2-digit',month:'long',year:'numeric'}:{day:'2-digit',month:'2-digit',year:'numeric'})}
 function metrics(rows){const net=rows.reduce((a,r)=>a+(+r.valor_liquido||0),0),margin=rows.reduce((a,r)=>a+(+r.margem||0),0),marginPct=net?margin/net*100:null,marginValid=margin>=0&&marginPct!==null&&Number.isFinite(marginPct)&&marginPct<=100;return{net,margin,marginPct,marginValid,clients:new Set(rows.map(r=>r.cliente).filter(Boolean)).size,articles:new Set(rows.map(r=>r.artigo).filter(Boolean)).size,qty:rows.reduce((a,r)=>a+(+r.quantidade||0),0)}}
 function group(rows,key){const m=new Map();rows.forEach(r=>{const k=String(r[key]||'N/D');m.set(k,(m.get(k)||0)+(+r.valor_liquido||0));});return [...m.entries()].sort((a,b)=>b[1]-a[1])}
@@ -7614,7 +7632,7 @@ body.dm-margin-restricted [data-k="margemp"]{display:none!important}
   const RESTRICTED=new Set(['rui_ferreira','joao_rebelo','sandro_loureiro','ccenter','clara_morgado','mario_leal']);
   const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
   const current=()=>sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||'';
-  const isRestricted=()=>RESTRICTED.has(current());
+  const isRestricted=()=>RESTRICTED.has(current())&&!window.dmCanSeeGlobalSales(current());
   const marginText=el=>norm(el?.textContent||'').includes('margem')||norm(el?.textContent||'').includes('rentabilidade');
 
   function markHide(el){
@@ -7715,13 +7733,13 @@ const norm=v=>String(v??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim
 const money=v=>new Intl.NumberFormat('pt-PT',{style:'currency',currency:'EUR',maximumFractionDigits:2}).format(Number(v)||0);
 const num=v=>new Intl.NumberFormat('pt-PT',{maximumFractionDigits:0}).format(Number(v)||0);
 const hdr=(extra={})=>Object.assign({apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json'},extra);
-function visibleSales(){let rows=Array.isArray(window.DATA)?window.DATA:[];const seller=SELLERS[cur()];if(seller)rows=rows.filter(r=>norm(r.vendedor)===norm(seller));return rows}
+function visibleSales(){if(window.dmCanSeeGlobalSales())return Array.isArray(window.DATA)?window.DATA:[];let rows=Array.isArray(window.DATA)?window.DATA:[];const seller=SELLERS[cur()];if(seller)rows=rows.filter(r=>norm(r.vendedor)===norm(seller));return rows}
 function isoWeek(d){const x=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));const day=x.getUTCDay()||7;x.setUTCDate(x.getUTCDate()+4-day);const y0=new Date(Date.UTC(x.getUTCFullYear(),0,1));return {year:x.getUTCFullYear(),week:Math.ceil((((x-y0)/86400000)+1)/7)}}
 function prevWeek(){const d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()-7);const i=isoWeek(d);return i}
 function yesterdayISO(){const d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()-1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function metrics(rows){const net=rows.reduce((a,r)=>a+(+r.valor_liquido||0),0),gross=rows.reduce((a,r)=>a+(+r.valor_total||0),0),margin=rows.reduce((a,r)=>a+(+r.margem||0),0),qty=rows.reduce((a,r)=>a+(+r.quantidade||0),0);return{net,gross,margin,marginPct:net?margin/net*100:0,qty,clients:new Set(rows.map(r=>r.cliente).filter(Boolean)).size,lines:rows.length}}
 function modal(){let bg=$('dmGenericReportBg');if(bg)return bg;bg=document.createElement('div');bg.id='dmGenericReportBg';bg.className='dm-report-modal-bg';bg.innerHTML='<div class="dm-report-modal"><div id="dmGenericReportBody"></div></div>';document.body.appendChild(bg);bg.addEventListener('click',e=>{if(e.target===bg)bg.classList.remove('open')});return bg}
-function openLast(kind){const restricted=RESTRICT_MARGIN.has(cur());let rows=[],title='',sub='';if(kind==='day'){const iso=yesterdayISO();rows=visibleSales().filter(r=>String(r.data_venda||'').slice(0,10)===iso);title='Último relatório diário';sub=new Date(iso+'T12:00:00').toLocaleDateString('pt-PT',{weekday:'long',day:'2-digit',month:'long',year:'numeric'})}else{const p=prevWeek();rows=visibleSales().filter(r=>Number(r.ano)===p.year&&Number(String(r.semana||'').replace(/\D/g,''))===p.week);title='Último relatório semanal';sub=`Semana ${String(p.week).padStart(2,'0')} · ${p.year}`};const k=metrics(rows),bg=modal();$('dmGenericReportBody').innerHTML=`<h2>${esc(title)}</h2><div class="sub">${esc(USER_LABELS[cur()]||cur()||'Utilizador')} · ${esc(sub)}</div><div class="dm-report-kpis"><div class="dm-report-kpi"><span>Vendas sem IVA</span><strong>${money(k.net)}</strong></div><div class="dm-report-kpi"><span>Vendas com IVA</span><strong>${money(k.gross)}</strong></div>${restricted?'':`<div class="dm-report-kpi"><span>Margem</span><strong>${money(k.margin)}</strong></div><div class="dm-report-kpi"><span>Margem %</span><strong>${k.marginPct.toFixed(1).replace('.',',')}%</strong></div>`}<div class="dm-report-kpi"><span>Clientes</span><strong>${num(k.clients)}</strong></div><div class="dm-report-kpi"><span>Quantidade</span><strong>${num(k.qty)}</strong></div><div class="dm-report-kpi"><span>Linhas</span><strong>${num(k.lines)}</strong></div></div>${rows.length?'':'<div class="smallnote"><b>Sem vendas neste período.</b> Todos os indicadores permanecem a 0.</div>'}<div class="dm-report-modal-actions"><button id="dmGenericPrint" type="button">Imprimir / PDF</button><button id="dmGenericClose" class="accent" type="button">Fechar</button></div>`;$('dmGenericClose').onclick=()=>bg.classList.remove('open');$('dmGenericPrint').onclick=()=>dmAbrirImpressaoNovaJanela('Relatório',bg.querySelector('.dm-report-modal')?.outerHTML||bg.outerHTML,'dm-generic-report-print');bg.classList.add('open')}
+function openLast(kind){const restricted=RESTRICT_MARGIN.has(cur())&&!window.dmCanSeeGlobalSales(cur());let rows=[],title='',sub='';if(kind==='day'){const iso=yesterdayISO();rows=visibleSales().filter(r=>String(r.data_venda||'').slice(0,10)===iso);title='Último relatório diário';sub=new Date(iso+'T12:00:00').toLocaleDateString('pt-PT',{weekday:'long',day:'2-digit',month:'long',year:'numeric'})}else{const p=prevWeek();rows=visibleSales().filter(r=>Number(r.ano)===p.year&&Number(String(r.semana||'').replace(/\D/g,''))===p.week);title='Último relatório semanal';sub=`Semana ${String(p.week).padStart(2,'0')} · ${p.year}`};const k=metrics(rows),bg=modal();$('dmGenericReportBody').innerHTML=`<h2>${esc(title)}</h2><div class="sub">${esc(USER_LABELS[cur()]||cur()||'Utilizador')} · ${esc(sub)}</div><div class="dm-report-kpis"><div class="dm-report-kpi"><span>Vendas sem IVA</span><strong>${money(k.net)}</strong></div><div class="dm-report-kpi"><span>Vendas com IVA</span><strong>${money(k.gross)}</strong></div>${restricted?'':`<div class="dm-report-kpi"><span>Margem</span><strong>${money(k.margin)}</strong></div><div class="dm-report-kpi"><span>Margem %</span><strong>${k.marginPct.toFixed(1).replace('.',',')}%</strong></div>`}<div class="dm-report-kpi"><span>Clientes</span><strong>${num(k.clients)}</strong></div><div class="dm-report-kpi"><span>Quantidade</span><strong>${num(k.qty)}</strong></div><div class="dm-report-kpi"><span>Linhas</span><strong>${num(k.lines)}</strong></div></div>${rows.length?'':'<div class="smallnote"><b>Sem vendas neste período.</b> Todos os indicadores permanecem a 0.</div>'}<div class="dm-report-modal-actions"><button id="dmGenericPrint" type="button">Imprimir / PDF</button><button id="dmGenericClose" class="accent" type="button">Fechar</button></div>`;$('dmGenericClose').onclick=()=>bg.classList.remove('open');$('dmGenericPrint').onclick=()=>dmAbrirImpressaoNovaJanela('Relatório',bg.querySelector('.dm-report-modal')?.outerHTML||bg.outerHTML,'dm-generic-report-print');bg.classList.add('open')}
 function addLastButtons(){const weekly=$('tab-weekly-report'),daily=$('tab-daily-report');if(weekly&&!$('dmLastWeekBtn')){const d=document.createElement('div');d.className='dm-last-report-actions';d.innerHTML='<button id="dmLastWeekBtn" class="secondary" type="button">Ver último relatório semanal</button>';weekly.prepend(d);$('dmLastWeekBtn').onclick=()=>openLast('week')}if(daily&&!$('dmLastDayBtn')){const root=$('dmDailyRoot')||daily;const d=document.createElement('div');d.className='dm-last-report-actions';d.innerHTML='<button id="dmLastDayBtn" class="secondary" type="button">Ver último relatório diário</button>';root.prepend(d);$('dmLastDayBtn').onclick=()=>openLast('day')}}
 // Corrige o detalhe do mapa Técnico: usa exatamente as linhas técnicas que alimentam o mapa.
 const oldDrill=window.handleChartDrilldown;
@@ -7847,7 +7865,7 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
 <script id="dm20260820Round2Script">
 (function(){
 'use strict';
-const $=id=>document.getElementById(id);const cur=()=>sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||'';const restricted=()=>['rui_ferreira','joao_rebelo','sandro_loureiro','ccenter','clara_morgado','mario_leal'].includes(cur());
+const $=id=>document.getElementById(id);const cur=()=>sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||'';const restricted=()=>!window.dmCanSeeGlobalSales(cur())&&['rui_ferreira','joao_rebelo','sandro_loureiro','ccenter','clara_morgado','mario_leal'].includes(cur());
 const money=v=>new Intl.NumberFormat('pt-PT',{style:'currency',currency:'EUR',minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(v)||0);const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function allSales(){let a=[];try{a=Array.isArray(DATA)?DATA:(window.DATA||[])}catch(_){a=window.DATA||[]}try{return typeof roleVisibleRows==='function'?roleVisibleRows(a):a}catch(_){return a}}
 function m(rows){const net=rows.reduce((a,r)=>a+(+r.valor_liquido||0),0),margin=rows.reduce((a,r)=>a+(+r.margem||0),0);return{net,margin,pct:net?margin/net*100:0,clients:new Set(rows.map(r=>r.cliente).filter(Boolean)).size,qty:rows.reduce((a,r)=>a+(+r.quantidade||0),0),lines:rows.length}}
@@ -8215,7 +8233,7 @@ function ensureVisitReportActions(){
     if(!b.dataset.dmBound){b.dataset.dmBound='1';b.addEventListener('click',e=>{e.stopPropagation();open(card.dataset.historyVisitId,/realizada/i.test(card.textContent||''))})}
   });
 }
-function salesRows(){let rows=Array.isArray(window.DATA)?window.DATA:[];const seller={rui_ferreira:'RUI FERREIRA',joao_rebelo:'JOÃO REBELO',sandro_loureiro:'SANDRO LOUREIRO',ccenter:'CCENTER',clara_morgado:'CLARA MORGADO',mario_leal:'MARIO LEAL'}[current()];if(seller)rows=rows.filter(r=>norm(r.vendedor)===norm(seller));return rows}
+function salesRows(){if(window.dmCanSeeGlobalSales())return Array.isArray(window.DATA)?window.DATA:[];let rows=Array.isArray(window.DATA)?window.DATA:[];const seller={rui_ferreira:'RUI FERREIRA',joao_rebelo:'JOÃO REBELO',sandro_loureiro:'SANDRO LOUREIRO',ccenter:'CCENTER',clara_morgado:'CLARA MORGADO',mario_leal:'MARIO LEAL'}[current()];if(seller)rows=rows.filter(r=>norm(r.vendedor)===norm(seller));return rows}
 function isoWeek(iso){const d=new Date(iso+'T12:00:00');if(isNaN(d))return 0;const x=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())),day=x.getUTCDay()||7;x.setUTCDate(x.getUTCDate()+4-day);const y0=new Date(Date.UTC(x.getUTCFullYear(),0,1));return Math.ceil((((x-y0)/86400000)+1)/7)}
 function reportTab(kind,key){
   const type=$('reportType');if(type){type.value=kind==='day'?'daily':'weekly';type.dispatchEvent(new Event('change',{bubbles:true}))}
@@ -8770,7 +8788,7 @@ const number=v=>new Intl.NumberFormat('pt-PT',{maximumFractionDigits:0}).format(
 const weekNo=v=>{const m=String(v||'').match(/(?:SEMANA|SEM|S|WEEK)?\s*[-:]?\s*(\d{1,2})(?!\d)/i);return m?Number(m[1]):0};
 function user(){return sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||''}
 function rawRows(){try{return (typeof DATA!=='undefined'&&Array.isArray(DATA))?DATA:(Array.isArray(window.DATA)?window.DATA:[])}catch(_){return Array.isArray(window.DATA)?window.DATA:[]}}
-function ownRows(){const seller=SELLERS[user()];if(!seller)return null;const n=norm(seller);return rawRows().filter(r=>norm(r?.vendedor)===n)}
+function ownRows(){if(window.dmCanSeeGlobalSales(user())&&SELLERS[user()])return rawRows();const seller=SELLERS[user()];if(!seller)return null;const n=norm(seller);return rawRows().filter(r=>norm(r?.vendedor)===n)}
 function pct(rows){const net=rows.reduce((a,r)=>a+(Number(r.valor_liquido)||0),0),m=rows.reduce((a,r)=>a+(Number(r.margem)||0),0);if(!rows.length||net<=0||m<0)return 'ND';const v=m/net*100;return Number.isFinite(v)?new Intl.NumberFormat('pt-PT',{minimumFractionDigits:1,maximumFractionDigits:2}).format(v)+'%':'ND'}
 function periodDateISO(r){const d=String(r?.data_documento||'').slice(0,10),v=String(r?.data_venda||'').slice(0,10);if(/^\d{4}-\d{2}-\d{2}$/.test(d))return d;if(/^\d{4}-\d{2}-\d{2}$/.test(v))return v;const y=Number(r?.ano)||0,m=Number(r?.mes)||0;return y>0&&m>=1&&m<=12?String(y)+'-'+String(m).padStart(2,'0')+'-01':''}
 function latestMonth(rows){const n=new Date();return [n.getFullYear(),n.getMonth()+1]}
@@ -9051,7 +9069,7 @@ const CHAT_KEY='dmChatEnabledByAssistance';
 const current=()=>sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||'';
 function syncChat(){let enabled=false;try{enabled=localStorage.getItem(CHAT_KEY)==='1'}catch(_){}document.body.classList.toggle('dm-chat-enabled',enabled&&!!current());const win=$('dmChatWindow');if(!enabled&&win)win.classList.remove('open');const cb=$('dmChatEnabledControl');if(cb)cb.checked=enabled}
 function ensureChatControl(){const tab=$('tab-admin-pref');if(!tab)return;let box=$('dmChatControlPanel');if(!box){box=document.createElement('div');box.id='dmChatControlPanel';box.className='dm-chat-control assistance-only';box.innerHTML='<h2>Chat interno</h2><div class="smallnote">A Assistência decide se a caixa de chat fica disponível no Portal.</div><label class="dm-chat-control-card"><span><strong>Ativar chatbox</strong><small>Desativado: o botão e a janela do chat não aparecem a nenhum utilizador. Ativado: o chat volta a ficar disponível após login.</small></span><input id="dmChatEnabledControl" type="checkbox"></label>';const host=tab.querySelector('.panel')||tab;host.appendChild(box);$('dmChatEnabledControl').addEventListener('change',e=>{try{localStorage.setItem(CHAT_KEY,e.target.checked?'1':'0')}catch(_){}syncChat()})}box.classList.toggle('role-hidden',current()!=='assistencia');syncChat()}
-function hideRestrictedMargins(){const restricted=PERSONAL.has(current());document.body.classList.toggle('dm-margin-restricted',restricted);const ids=['kpiMargem','techKpiMargem','mgMargin','mgMarginPct','dmMonthMargem','dmWeekMargem','dmDayMargem'];ids.forEach(id=>{const el=$(id);if(!el)return;const card=el.closest('.card,.tech-kpi,.detail-kpi,.dm-period-kpi,.dm-daily-kpi,.weekly-report-kpi,.dm-period-detail-card');if(card){if(restricted)card.style.setProperty('display','none','important');else card.style.removeProperty('display')}});document.querySelectorAll('.card,.tech-kpi,.detail-kpi,.dm-period-kpi,.dm-daily-kpi,.weekly-report-kpi,.dm-period-detail-card').forEach(card=>{const t=(card.textContent||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();if(/margem|rentabilidade/.test(t)){if(restricted)card.style.setProperty('display','none','important');else if(card.getAttribute('data-dm-margin-hidden')!=='1')card.style.removeProperty('display')}})}
+function hideRestrictedMargins(){const restricted=PERSONAL.has(current())&&!window.dmCanSeeGlobalSales(current());document.body.classList.toggle('dm-margin-restricted',restricted);const ids=['kpiMargem','techKpiMargem','mgMargin','mgMarginPct','dmMonthMargem','dmWeekMargem','dmDayMargem'];ids.forEach(id=>{const el=$(id);if(!el)return;const card=el.closest('.card,.tech-kpi,.detail-kpi,.dm-period-kpi,.dm-daily-kpi,.weekly-report-kpi,.dm-period-detail-card');if(card){if(restricted)card.style.setProperty('display','none','important');else card.style.removeProperty('display')}});document.querySelectorAll('.card,.tech-kpi,.detail-kpi,.dm-period-kpi,.dm-daily-kpi,.weekly-report-kpi,.dm-period-detail-card').forEach(card=>{const t=(card.textContent||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();if(/margem|rentabilidade/.test(t)){if(restricted)card.style.setProperty('display','none','important');else if(card.getAttribute('data-dm-margin-hidden')!=='1')card.style.removeProperty('display')}})}
 function syncPersonalVisits(){const u=current(),personal=PERSONAL.has(u),tab=$('tab-visitas');if(!tab)return;const formTitle=tab.querySelector('#visitFormPanel h2');if(formTitle)formTitle.textContent='Gestão de visitas';let notice=$('dmPersonalVisitNotice');if(personal){if(!notice){notice=document.createElement('div');notice.id='dmPersonalVisitNotice';notice.className='dm-personal-visit-notice';const panel=tab.querySelectorAll('.panel.wide')[1]||tab.querySelector('.panel');panel?.prepend(notice)}notice.textContent='Agenda pessoal de '+(LABELS[u]||u)+' — apenas as suas marcações e o seu histórico são apresentados.';if($('visitUser'))$('visitUser').value=u;if($('visitFilterUser'))$('visitFilterUser').value=u}else if(notice)notice.remove()}
 function ensureHistoryUserFilter(){const filters=$('dmHistFiltersWrap')||document.querySelector('#dmVisitGeneralHistory .dm-history-filters');if(!filters)return;const global=HISTORY_GLOBAL.has(current());let wrap=$('dmHistUser')?.closest('.filter');if(global&&!$('dmHistUser')){wrap=document.createElement('div');wrap.className='filter';wrap.innerHTML='<label>Utilizador</label><select id="dmHistUser"><option value="">Todos os utilizadores</option></select>';filters.prepend(wrap);$('dmHistUser').addEventListener('change',()=>{$('dmHistRefresh')?.click()})}else if(!global&&wrap){wrap.remove()}if(global&&$('dmHistUser')){const sel=$('dmHistUser'),old=sel.value;sel.innerHTML='<option value="">Todos os utilizadores</option>'+Object.entries(LABELS).map(([id,n])=>'<option value="'+id+'">'+n+'</option>').join('');if([...sel.options].some(o=>o.value===old))sel.value=old}}
 function refreshVisitHistoryForSession(){ensureHistoryUserFilter();syncPersonalVisits();const btn=$('dmHistRefresh');if(btn&&current())setTimeout(()=>btn.click(),80)}
@@ -9087,7 +9105,7 @@ function clearVisitDom(){
 function lockPersonalSelectors(user){
   if(!PERSONAL.has(user))return;
   const sellerMap={rui_ferreira:'RUI FERREIRA',joao_rebelo:'JOÃO REBELO',sandro_loureiro:'SANDRO LOUREIRO',ccenter:'CCENTER',clara_morgado:'CLARA MORGADO',mario_leal:'MARIO LEAL'};
-  const seller=$('vendedor'),wanted=sellerMap[user];
+  const seller=$('vendedor'),wanted=window.dmCanSeeGlobalSales(user)?'':sellerMap[user];
   if(seller&&wanted){const n=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase();const opt=[...seller.options].find(o=>n(o.value||o.textContent)===n(wanted));if(opt)seller.value=opt.value;seller.disabled=true}
   if($('visitUser'))$('visitUser').value=user;
   if($('visitFilterUser'))$('visitFilterUser').value=user;
@@ -9130,7 +9148,7 @@ const norm=v=>String(v??'').replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim().no
 const rows=()=>{try{return (typeof DATA!=='undefined'&&Array.isArray(DATA))?DATA:(Array.isArray(window.DATA)?window.DATA:[])}catch(_){return Array.isArray(window.DATA)?window.DATA:[]}};
 const eurFmt=new Intl.NumberFormat('pt-PT',{style:'currency',currency:'EUR',maximumFractionDigits:0}),numFmt=new Intl.NumberFormat('pt-PT',{maximumFractionDigits:0});
 const eur=n=>eurFmt.format(Number(n)||0),num=n=>numFmt.format(Number(n)||0);let busy=false;
-function apply(){const u=user(),seller=SELLERS[u];if(u)document.documentElement.setAttribute('data-dm-user',u);else document.documentElement.removeAttribute('data-dm-user');document.body?.classList.toggle('dm-margin-restricted',!!seller);if(!seller||busy)return;busy=true;try{const wanted=norm(seller),clients=new Set(),articles=new Set(),sellers=new Set();let semIva=0,iva=0,comIva=0,qtd=0,count=0;for(const r of rows()){if(norm(r?.vendedor)!==wanted)continue;count++;semIva+=Number(r?.valor_liquido)||0;iva+=Number(r?.iva)||0;comIva+=Number(r?.valor_total)||0;qtd+=Number(r?.quantidade)||0;if(r?.cliente)clients.add(r.cliente);if(r?.artigo)articles.add(r.artigo);if(r?.vendedor)sellers.add(r.vendedor)}$('kpiSemIva')&&($('kpiSemIva').textContent=eur(semIva));$('kpiIva')&&($('kpiIva').textContent=eur(iva));$('kpiComIva')&&($('kpiComIva').textContent=eur(comIva));$('kpiClientes')&&($('kpiClientes').textContent=num(clients.size));$('kpiArtigos')&&($('kpiArtigos').textContent=num(articles.size));$('kpiVendedores')&&($('kpiVendedores').textContent=num(sellers.size));$('kpiQtd')&&($('kpiQtd').textContent=num(qtd));$('kpiLinhas')&&($('kpiLinhas').textContent=num(count)+' linhas do utilizador');try{window.dmRefreshSellerPeriodKpis?.()}catch(_){}}finally{busy=false}}
+function apply(){const u=user(),seller=SELLERS[u];if(u)document.documentElement.setAttribute('data-dm-user',u);else document.documentElement.removeAttribute('data-dm-user');document.body?.classList.toggle('dm-margin-restricted',!!seller&&!window.dmCanSeeGlobalSales(u));if(!seller||window.dmCanSeeGlobalSales(u)||busy)return;busy=true;try{const wanted=norm(seller),clients=new Set(),articles=new Set(),sellers=new Set();let semIva=0,iva=0,comIva=0,qtd=0,count=0;for(const r of rows()){if(norm(r?.vendedor)!==wanted)continue;count++;semIva+=Number(r?.valor_liquido)||0;iva+=Number(r?.iva)||0;comIva+=Number(r?.valor_total)||0;qtd+=Number(r?.quantidade)||0;if(r?.cliente)clients.add(r.cliente);if(r?.artigo)articles.add(r.artigo);if(r?.vendedor)sellers.add(r.vendedor)}$('kpiSemIva')&&($('kpiSemIva').textContent=eur(semIva));$('kpiIva')&&($('kpiIva').textContent=eur(iva));$('kpiComIva')&&($('kpiComIva').textContent=eur(comIva));$('kpiClientes')&&($('kpiClientes').textContent=num(clients.size));$('kpiArtigos')&&($('kpiArtigos').textContent=num(articles.size));$('kpiVendedores')&&($('kpiVendedores').textContent=num(sellers.size));$('kpiQtd')&&($('kpiQtd').textContent=num(qtd));$('kpiLinhas')&&($('kpiLinhas').textContent=num(count)+' linhas do utilizador');try{window.dmRefreshSellerPeriodKpis?.()}catch(_){}}finally{busy=false}}
 function burst(){apply();requestAnimationFrame(apply);[20,80,180,400,800,1500].forEach(ms=>setTimeout(apply,ms))}document.addEventListener('click',e=>{if(e.target?.closest?.('#authSubmit,#authLogout'))setTimeout(burst,0)},true);window.addEventListener('dm:data-ready',burst);window.addEventListener('focus',apply);if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',burst,{once:true});else burst();window.dmApplyPersonalKpiGuard=burst;
 })();
 </script>
@@ -9508,7 +9526,7 @@ const currentUser=()=>sessionStorage.getItem('dmCurrentUser')||window.dmCurrentU
 const rawRows=()=>{try{return (typeof DATA!=='undefined'&&Array.isArray(DATA))?DATA:(Array.isArray(window.DATA)?window.DATA:[])}catch(_){return Array.isArray(window.DATA)?window.DATA:[]}};
 function visibleRows(){
   const all=rawRows(),u=currentUser(),seller=SELLERS[u];
-  if(seller)return all.filter(r=>norm(r?.vendedor)===norm(seller));
+  if(seller&&!window.dmCanSeeGlobalSales(u))return all.filter(r=>norm(r?.vendedor)===norm(seller));
   try{if(typeof window.roleVisibleRows==='function')return window.roleVisibleRows(all)}catch(_){}
   try{if(typeof roleVisibleRows==='function')return roleVisibleRows(all)}catch(_){}
   return all;

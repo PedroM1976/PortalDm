@@ -65,7 +65,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="dm-release" content="20261002-1630"><title>Portal DM</title>
+<meta name="dm-release" content="20261015-1122"><title>Portal DM</title>
 <!-- Otimização 2026-09-26: login não bloqueia no Supabase; preferências sincronizadas em background; refresh inicial faseado. -->
 <link rel="preconnect" href="https://lyihzeddgfbzmuqwrjya.supabase.co" crossorigin>
 <link rel="preconnect" href="https://cdn.sheetjs.com" crossorigin>
@@ -2545,6 +2545,7 @@ h1{font-size:24px}
 <script id="dmCrmPortalScript">
 (function(){
  const $=id=>document.getElementById(id), money=n=>new Intl.NumberFormat('pt-PT',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(Number(n)||0);
+ function amount(v){if(typeof v==='number')return Number.isFinite(v)?v:0;let s=String(v??'').trim().replace(/[€\s]/g,'');if(!s)return 0;if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');const n=Number(s);return Number.isFinite(n)?n:0}
  function current(){return sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||''}
  const PERSONAL_TARGET=40000;
  const PERSONAL_TARGETS={rui_ferreira:40000,joao_rebelo:40000,sandro_loureiro:40000,ccenter:15000};
@@ -2623,14 +2624,21 @@ async function refresh(){
   const note=$('dmCrmForecastNote');if(!note)return;const c=cfg();if(!c.url||!c.key){note.textContent='Abra o CRM para configurar a ligação ao Supabase.';['dmCrmPipeline','dmCrmReady','dmCrmHot'].forEach(id=>$(id).textContent='—');if($('dmCrmReadyCount'))$('dmCrmReadyCount').textContent='0 oportunidades';if($('dmCrmHotCount'))$('dmCrmHotCount').textContent='0 oportunidades';renderPersonalTarget(current());return}
   try{
    if(!window.supabase){await new Promise((resolve,reject)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';s.onload=resolve;s.onerror=reject;document.head.appendChild(s)})}
-   const sb=window.supabase.createClient(c.url,c.key),u=current(),admin=['administrador','assistencia','comercial','jose_morgado','ccenter'].includes(u),labels={comercial:'Domingos Lopes',jose_morgado:'José Morgado',rui_ferreira:'Rui Ferreira',joao_rebelo:'João Rebelo',sandro_loureiro:'Sandro Loureiro',ccenter:'CCenter',clara_morgado:'Clara Morgado',mario_leal:'Mario Leal'};let q=sb.from('crm_opportunities').select('id,title,client_name,value,probability,status,owner_id,owner_name,created_by,source,expected_close,closed_at,extra_fields');const r=await q;if(r.error)throw r.error;let secured=(r.data||[]);if(!admin&&u){
- const ownLabel=labels[u]||u;
+ const sb=window.supabase.createClient(c.url,c.key),u=current(),admin=['administrador','assistencia','comercial','jose_morgado','ccenter'].includes(u),labels={comercial:'Domingos Lopes',jose_morgado:'José Morgado',rui_ferreira:'Rui Ferreira',joao_rebelo:'João Rebelo',sandro_loureiro:'Sandro Loureiro',ccenter:'CCenter',clara_morgado:'Clara Morgado',mario_leal:'Mario Leal'};let q=sb.from('crm_opportunities').select('*');const r=await q;if(r.error)throw r.error;let secured=(r.data||[]);
  const nn=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z0-9]+/g,'').toUpperCase();
  const extra=x=>{const v=x?.extra_fields;if(v&&typeof v==='object')return v;try{return JSON.parse(v||'{}')||{}}catch(_){return {}}};
+ const creatorProfiles=new Map();try{const pr=await sb.from('crm_profiles').select('id,auth_user_id,display_name');if(!pr.error)(pr.data||[]).forEach(p=>{const info={id:p.id||'',auth_user_id:p.auth_user_id||'',display_name:p.display_name||''};[p.id,p.auth_user_id].filter(Boolean).forEach(k=>creatorProfiles.set(nn(k),info))})}catch(_){/* O created_by_role continua a identificar o criador se o perfil não estiver disponível. */}
+ const clientOwners=new Map();try{const cr=await sb.from('crm_clients').select('name,owner_id,owner_name');if(!cr.error)(cr.data||[]).forEach(cl=>{if(cl.name)clientOwners.set(nn(cl.name),{owner_id:cl.owner_id||'',owner_name:cl.owner_name||''})})}catch(_){/* A atribuição do cliente é apenas uma alternativa. */}
+ const ownerInfo=x=>{const ex=extra(x),idFields=['owner_id','assigned_to_id','assignee_id','salesperson_id','seller_id','vendedor_id','comercial_id','responsible_id','responsavel_id','commercial_owner_id'],nameFields=['owner_name','responsavel','responsável','responsavel_name','responsável_nome','responsible_name','owner_display_name','assigned_to','assigned_user','assignee','salesperson','seller','vendedor','comercial','responsible','commercial_owner'];let owner_id='',owner_name='';for(const k of idFields)owner_id=owner_id||x?.[k]||ex?.[k]||'';for(const k of nameFields)owner_name=owner_name||x?.[k]||ex?.[k]||'';const profile=creatorProfiles.get(nn(owner_id));if(!owner_name&&profile)owner_name=profile.display_name||'';if(!owner_id&&!owner_name){const byClient=clientOwners.get(nn(x?.client_name||x?.cliente||''));if(byClient){owner_id=byClient.owner_id;owner_name=byClient.owner_name||creatorProfiles.get(nn(byClient.owner_id))?.display_name||''}}return {owner_id,owner_name}};
+ const creatorInfo=x=>{const ex=extra(x),ids=['created_by','createdBy','creator_id','author_id','created_by_user'],names=['created_by_name','created_by_role','creator','creator_name','author','author_name','created_by_user_name'];let id='',name='';const values=[];for(const k of ids){const v=x?.[k]||ex?.[k]||'';if(v)values.push(v);id=id||v}for(const k of names){const v=x?.[k]||ex?.[k]||'';if(v)values.push(v);name=name||v}const profile=creatorProfiles.get(nn(id));if(profile){[profile.auth_user_id,profile.display_name].filter(Boolean).forEach(v=>values.push(v));name=name||profile.display_name}return {id,name,values}};
+ const matchesSeller=(values,id,label)=>{const a=nn(id),b=nn(label);return values.some(v=>{const n=nn(v);return !!n&&(n===a||n===b||n.includes(a)||n.includes(b))})};
+ if(!admin&&u){
+ const ownLabel=labels[u]||u;
  secured=secured.filter(x=>{
-   const own=nn(x.owner_id)===nn(u)||nn(x.owner_name)===nn(ownLabel);
+   const ex=extra(x),oi=ownerInfo(x);
+   const ci=creatorInfo(x);
+   const own=matchesSeller([oi.owner_id,oi.owner_name],u,ownLabel)||(!oi.owner_id&&!oi.owner_name&&matchesSeller([ci.id,ci.name],u,ownLabel));
    if(u!=='ccenter')return own;
-   const ex=extra(x);
    const ccenterOrigin=[
      x.owner_id,x.owner_name,x.created_by,x.source,
      ex.origem,ex.origin,ex.source,ex.created_by,ex.owner_name
@@ -2638,7 +2646,7 @@ async function refresh(){
    return own||ccenterOrigin;
  });
 }const canon=s=>{const n=String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase().replace(/\s+/g,' ');if((n.includes('ganh')||n.includes('pronta'))&&(n.includes('fatur')||n.includes('factur')))return 'Ganho para faturar';if(['hot deal','hotdeal'].includes(n))return 'Hot Deal';if(['negociacao','em negociacao'].includes(n))return 'Em negociação';if(n==='standby')return 'Nutrição';if(['ganho','won'].includes(n))return 'Ganho';if(['perdido','perdida','lost'].includes(n))return 'Perdido';return String(s||'')};
- const rows=secured.map(x=>({...x,status:canon(x.status)})),active=rows.filter(x=>!['Ganho','Perdido'].includes(x.status)),ready=rows.filter(x=>x.status==='Ganho para faturar'),hot=rows.filter(x=>x.status==='Hot Deal');if(current()!==u)return;window.dmReadyOpportunities=ready;window.dmReadyOpportunitiesUser=u;window.dmRefreshSellerMonthlyTargets?.();renderPortalUnread(rows,u);$('dmCrmPipeline').textContent=money(active.reduce((a,x)=>a+(+x.value||0),0));$('dmCrmReady').textContent=money(ready.reduce((a,x)=>a+(+x.value||0),0));$('dmCrmReadyCount').textContent=ready.length+' '+(ready.length===1?'oportunidade':'oportunidades');$('dmCrmHot').textContent=money(hot.reduce((a,x)=>a+(+x.value||0),0));if($('dmCrmHotCount'))$('dmCrmHotCount').textContent=hot.length+' '+(hot.length===1?'oportunidade':'oportunidades');renderPersonalTarget(u);note.textContent=admin?'Visão global do CRM.':'Previsão das suas oportunidades.';
+ const rows=secured.map(x=>{const ex=parsePortalExtra(x.extra_fields),oi=ownerInfo(x),ci=creatorInfo(x);return {...x,value:amount(x.value??x.valor??x.amount??ex.value??ex.valor??ex.amount),owner_name:oi.owner_name,owner_id:oi.owner_id,created_by:ci.id,created_by_name:ci.name,__created_by_values:ci.values,expected_close:x.expected_close||x.data_prevista||x.close_date||ex.expected_close||ex.data_prevista||ex.close_date||'',status:canon(x.status||x.estado||ex.status||ex.estado)}}),active=rows.filter(x=>!['Ganho','Perdido'].includes(x.status)),ready=rows.filter(x=>x.status==='Ganho para faturar'),hot=rows.filter(x=>x.status==='Hot Deal');if(current()!==u)return;window.dmReadyOpportunities=ready;window.dmReadyOpportunitiesUser=u;window.dmRefreshSellerMonthlyTargets?.();renderPortalUnread(rows,u);$('dmCrmPipeline').textContent=money(active.reduce((a,x)=>a+(+x.value||0),0));$('dmCrmReady').textContent=money(ready.reduce((a,x)=>a+(+x.value||0),0));$('dmCrmReadyCount').textContent=ready.length+' '+(ready.length===1?'oportunidade':'oportunidades');$('dmCrmHot').textContent=money(hot.reduce((a,x)=>a+(+x.value||0),0));if($('dmCrmHotCount'))$('dmCrmHotCount').textContent=hot.length+' '+(hot.length===1?'oportunidade':'oportunidades');renderPersonalTarget(u);note.textContent=admin?'Visão global do CRM.':'Previsão das suas oportunidades.';
   }catch(e){note.textContent='Não foi possível obter a previsão: '+(e.message||e)}
  }
  async function navigateModule(module,candidates){
@@ -2654,6 +2662,7 @@ async function refresh(){
   setTimeout(refresh,500);
  }
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bindPortalModules);else bindPortalModules();
+ window.addEventListener('focus',()=>setTimeout(refresh,150));document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout(refresh,150)});
  window.dmRefreshCrmForecast=refresh;
 })();
 </script>
@@ -8628,7 +8637,6 @@ function refreshPeriodKpis(){
 function burstPeriodKpis(){
   refreshPeriodKpis();
   requestAnimationFrame(refreshPeriodKpis);
-  [80,350,1200].forEach(ms=>setTimeout(refreshPeriodKpis,ms));
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',burstPeriodKpis,{once:true});else burstPeriodKpis();
 window.addEventListener('dm:data-ready',burstPeriodKpis);
@@ -8781,7 +8789,7 @@ function boot(){bindMenu();const root=$('dmCampaignHome');if(root&&!root.dataset
 /* Fecha ao clicar fora. */
 document.addEventListener('click',e=>{if(!e.target.closest?.('#dmCampaignHome .dm-campaign-ham-wrap'))document.querySelectorAll('#dmCampaignHome .dm-campaign-ham-wrap').forEach(closeMenu)},false);
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
-setTimeout(boot,300);setTimeout(boot,900);setInterval(()=>{if(!document.hidden)bindMenu()},10000);
+setTimeout(boot,900);
 })();
 </script>
 
@@ -8818,7 +8826,7 @@ function renderOwn(){
  return true;
 }
 function refresh(){if(!renderOwn()){try{window.dmRenderPeriodKpis?.()}catch(_){}}}
-function burst(){refresh();requestAnimationFrame(refresh);[0,30,80,160,300,600,1000,1800,3000,5000,8000].forEach(ms=>setTimeout(refresh,ms))}
+let refreshQueued=false;function burst(){if(refreshQueued)return;refreshQueued=true;requestAnimationFrame(()=>{refreshQueued=false;refresh()})}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',burst,{once:true});else burst();
 document.addEventListener('click',e=>{if(e.target?.closest?.('#authSubmit'))setTimeout(burst,0);if(e.target?.closest?.('#authLogout'))setTimeout(burst,20)},true);
 window.addEventListener('dm:data-ready',burst);window.addEventListener('focus',refresh);
@@ -8893,7 +8901,9 @@ function observeSalesStatus(){
 
 /* 2) Navegação das abas num drawer lateral que não desloca o painel. */
 function ensureNav(){
- if($('dmPortalNavDrawer')){syncNav();return}
+ if($('dmPortalNavDrawer')){
+  $('dmPortalNavDrawer').classList.remove('open');$('dmPortalNavBackdrop')?.classList.remove('open');$('dmPortalNavDrawer').setAttribute('aria-hidden','true');syncNav();return
+ }
  const fab=document.createElement('button');fab.id='dmPortalNavFab';fab.type='button';fab.setAttribute('aria-label','Abrir menu do Portal');fab.title='Menu do Portal';fab.textContent='☰';
  const back=document.createElement('div');back.id='dmPortalNavBackdrop';
  const drawer=document.createElement('aside');drawer.id='dmPortalNavDrawer';drawer.setAttribute('aria-hidden','true');drawer.innerHTML='<div class="dm-nav-head"><strong>Menu do Portal</strong><button type="button" class="dm-nav-close" id="dmPortalNavClose" aria-label="Fechar">×</button></div><div id="dmPortalNavList"></div>';
@@ -8913,7 +8923,9 @@ function ensureNav(){
 function syncNav(){
  const list=$('dmPortalNavList'),tabs=document.querySelector('.tabs');if(!list||!tabs)return;
  const buttons=[...tabs.querySelectorAll('.tab-btn[data-tab]')];
- list.innerHTML=buttons.map(b=>'<button type="button" class="dm-nav-item '+(b.classList.contains('active')?'active ':'')+(b.classList.contains('role-hidden')?'role-hidden':'')+'" data-dm-nav-target="'+String(b.dataset.tab||'').replace(/"/g,'&quot;')+'">'+b.innerHTML+'</button>').join('');
+ const html=buttons.map(b=>'<button type="button" class="dm-nav-item '+(b.classList.contains('active')?'active ':'')+(b.classList.contains('role-hidden')?'role-hidden':'')+'" data-dm-nav-target="'+String(b.dataset.tab||'').replace(/"/g,'&quot;')+'">'+b.innerHTML+'</button>').join('');
+ if(list.dataset.dmMarkup===html)return;
+ list.innerHTML=html;list.dataset.dmMarkup=html;
 }
 function observeTabs(){
  const tabs=document.querySelector('.tabs');if(!tabs||tabs.dataset.dmV5Observed)return;
@@ -8923,8 +8935,7 @@ function observeTabs(){
 }
 function boot(){hookLoaders();observeSalesStatus();ensureNav();observeTabs();refreshSellerKpis()}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
-/* Alguns módulos são declarados mais abaixo/inicializados depois do DOM. */
-[100,300,700,1400,2500].forEach(ms=>setTimeout(()=>{hookLoaders();observeSalesStatus();ensureNav();observeTabs()},ms));
+/* A rotina é executada uma vez: as funções de dados e as abas já existem nesta altura do HTML. */
 window.addEventListener('dm:data-ready',refreshSellerKpis);
 })();
 </script>
@@ -9657,19 +9668,28 @@ window.dmForceCurrentMonthKpi=burst;
  const user=()=>sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||'';
  function dateOf(r){const d=String(r?.data_documento||'').slice(0,10);if(/^\d{4}-\d{2}-\d{2}$/.test(d))return d;const v=String(r?.data_venda||'').slice(0,10);if(/^\d{4}-\d{2}-\d{2}$/.test(v))return v;const y=Number(r?.ano)||0,m=Number(r?.mes)||0;return y&&m?String(y)+'-'+String(m).padStart(2,'0')+'-01':''}
  function rowsThisMonth(){const now=new Date(),ym=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0'),today=ym+'-'+String(now.getDate()).padStart(2,'0');return data().filter(r=>{const d=dateOf(r);return d.slice(0,7)===ym&&d<=today})}
+ const normId=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/gi,'').toLowerCase();
+ function identifiesSeller(values,id){const x=SELLERS[id],needles=[id,x?.label,x?.name].map(normId).filter(Boolean);return values.some(v=>{const got=normId(v);return got&&needles.some(n=>got===n||got.includes(n)||n.includes(got))})}
+ function opportunitySeller(o){
+   // Nas metas, o Responsável do CRM é o mesmo campo comercial que o vendedor nas vendas.
+   // O criador só serve de fallback quando o registo não tem responsável atribuído.
+   const owner=[o.owner_id,o.owner_name,o.responsavel,o.responsável,o.responsavel_name,o.responsible_name,o.owner_display_name,o.assigned_to,o.assigned_user,o.assignee,o.seller,o.vendedor,o.comercial];
+   const responsible=Object.keys(SELLERS).find(id=>identifiesSeller(owner,id));
+   if(responsible)return responsible;
+   if(owner.some(v=>String(v??'').trim()))return '';
+   const creators=o.__created_by_values||[o.created_by,o.created_by_name,o.created_by_role,o.creator,o.author];
+   return Object.keys(SELLERS).find(id=>identifiesSeller(creators,id))||'';
+ }
  function render(){
    const root=$('dmSellerMonthlyTargets'),grid=$('dmSellerMonthlyTargetGrid'),note=$('dmSellerMonthlyTargetNote');if(!root||!grid)return;
    const u=user();let ids=[];if(PRIV.has(u))ids=['rui_ferreira','joao_rebelo','sandro_loureiro'];else if(SELLERS[u])ids=[u];
    root.style.display=ids.length?'block':'none';if(!ids.length)return;
    const now=new Date(),rows=rowsThisMonth();
    if(note)note.textContent='Referência: '+new Intl.DateTimeFormat('pt-PT',{month:'long',year:'numeric'}).format(now)+' · realizado até dia '+now.getDate()+' · Data do Documento';
-   const ym=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
    grid.innerHTML=ids.map(id=>{const x=SELLERS[id],actual=rows.filter(r=>norm(r?.vendedor)===norm(x.name)).reduce((a,r)=>a+(Number(r?.valor_liquido)||0),0);
-    const normId=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/gi,'').toLowerCase();
-    const expectedMonth=v=>{const s=String(v||'').trim();if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,7);const m=s.match(/^(\d{1,2})[/.](\d{1,2})[/.](\d{4})$/);return m?m[3]+'-'+m[2].padStart(2,'0'):''};
-    const ready=(window.dmReadyOpportunitiesUser===u?(window.dmReadyOpportunities||[]):[]).filter(o=>(normId(o.owner_id)===normId(id)||norm(o.owner_name)===norm(x.label))&&expectedMonth(o.expected_close)===ym).reduce((a,o)=>a+(Number(o.value)||0),0);
+    const ready=(window.dmReadyOpportunitiesUser===u?(window.dmReadyOpportunities||[]):[]).filter(o=>opportunitySeller(o)===id).reduce((a,o)=>a+(Number(o.value??o.valor)||0),0);
     const bar=(label,value,target,color)=>{const pct=value/target*100;return '<div class="dm-target-head" style="margin-top:12px"><div>'+label+'</div><div class="dm-target-values">'+money(value)+' / '+money(target)+'</div></div><div class="dm-target-track" role="progressbar" aria-label="'+label+'" aria-valuemin="0" aria-valuemax="100" aria-valuenow="'+Math.min(100,Math.max(0,pct))+'"><div class="dm-target-fill" style="width:'+Math.min(100,Math.max(0,pct))+'%;background:'+color+'"></div></div><div class="dm-target-percent">'+pct.toFixed(1).replace('.',',')+'% da meta mensal</div>'};
-    return '<div class="dm-target-card" data-seller-target="'+id+'"><div class="dm-target-name">'+x.label+'</div>'+bar('Vendas sem IVA',actual,12500,'#0657ff')+bar('CRM — Ganho para faturar',ready,32500,'#7c3aed')+bar('Total vendas + CRM',actual+ready,55000,'#00a651')+'<small>CRM: data prevista de faturação neste mês.</small></div>'}).join('');
+    return '<div class="dm-target-card" data-seller-target="'+id+'"><div class="dm-target-name">'+x.label+'</div>'+bar('Vendas sem IVA',actual,12500,'#0657ff')+bar('CRM — Ganho para faturar',ready,32500,'#7c3aed')+bar('Total vendas + CRM',actual+ready,55000,'#00a651')+'<small>Conta enquanto estiver em “Ganho para faturar”, mesmo quando muda o mês; sai ao passar a “Ganho”.</small></div>'}).join('');
    grid.querySelectorAll('[data-seller-target]').forEach(card=>card.onclick=()=>{const id=card.dataset.sellerTarget,x=SELLERS[id];if(!x)return;const rr=rows.filter(r=>norm(r?.vendedor)===norm(x.name));try{if(typeof showDetails==='function')showDetails('vendedor',x.name,'',rr)}catch(_){}});
  }
  function burst(){render();requestAnimationFrame(render);[50,200,700,1500].forEach(ms=>setTimeout(render,ms))}

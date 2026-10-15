@@ -130,7 +130,13 @@ window.dmResetSalesFiltersForUser=function(user){if(!window.dmCanSeeGlobalSales(
 
 <script>
 // Leitor Excel com CDN oficial prioritário, timeout e alternativas para GitHub Pages.
-window.__xlsxReady = (async function(){
+/* A biblioteca Excel só é descarregada quando alguém abre um ficheiro Excel.
+   O portal usa CSV/Supabase normalmente; isto evita um download externo no arranque. */
+window.__xlsxReady = null;
+window.dmLoadXlsx = function(){
+  if(window.XLSX) return Promise.resolve(window.XLSX);
+  if(window.__xlsxReady) return window.__xlsxReady;
+  window.__xlsxReady = (async function(){
   if (window.XLSX) return window.XLSX;
   const sources = [
     'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js',
@@ -157,7 +163,9 @@ window.__xlsxReady = (async function(){
     try { return await loadScript(src); } catch (_) {}
   }
   return null;
-})();
+  })();
+  return window.__xlsxReady;
+};
 </script>
 <style id="dmCriticalNoFlash">
 /* Evita FOUC: drawers que aparecem no HTML antes do CSS completo */
@@ -1419,7 +1427,7 @@ async function parseFile(file,preserveFilters=false){
  if(ext==='csv'){
    rows=parseCSVText(await file.text());
  } else {
-   const XLSXLib=window.XLSX || await window.__xlsxReady;
+   const XLSXLib=window.XLSX || await window.dmLoadXlsx();
    if(!XLSXLib) throw new Error('Não foi possível carregar o leitor de Excel. A rede está a bloquear os servidores da biblioteca. Tente recarregar a página, desative temporariamente o bloqueador para este site ou carregue um CSV.');
    const buf=await file.arrayBuffer();
    const wb=XLSXLib.read(buf,{type:'array',cellDates:true});
@@ -2629,7 +2637,7 @@ async function refresh(){
    ].some(v=>nn(v)==='CCENTER');
    return own||ccenterOrigin;
  });
-}const canon=s=>{const n=String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();if(['pronta para faturar','ganho para faturar'].includes(n))return 'Ganho para faturar';if(['hot deal','hotdeal'].includes(n))return 'Hot Deal';if(['negociacao','em negociacao'].includes(n))return 'Em negociação';if(n==='standby')return 'Nutrição';if(['ganho','won'].includes(n))return 'Ganho';if(['perdido','perdida','lost'].includes(n))return 'Perdido';return String(s||'')};
+}const canon=s=>{const n=String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase().replace(/\s+/g,' ');if((n.includes('ganh')||n.includes('pronta'))&&(n.includes('fatur')||n.includes('factur')))return 'Ganho para faturar';if(['hot deal','hotdeal'].includes(n))return 'Hot Deal';if(['negociacao','em negociacao'].includes(n))return 'Em negociação';if(n==='standby')return 'Nutrição';if(['ganho','won'].includes(n))return 'Ganho';if(['perdido','perdida','lost'].includes(n))return 'Perdido';return String(s||'')};
  const rows=secured.map(x=>({...x,status:canon(x.status)})),active=rows.filter(x=>!['Ganho','Perdido'].includes(x.status)),ready=rows.filter(x=>x.status==='Ganho para faturar'),hot=rows.filter(x=>x.status==='Hot Deal');if(current()!==u)return;window.dmReadyOpportunities=ready;window.dmReadyOpportunitiesUser=u;window.dmRefreshSellerMonthlyTargets?.();renderPortalUnread(rows,u);$('dmCrmPipeline').textContent=money(active.reduce((a,x)=>a+(+x.value||0),0));$('dmCrmReady').textContent=money(ready.reduce((a,x)=>a+(+x.value||0),0));$('dmCrmReadyCount').textContent=ready.length+' '+(ready.length===1?'oportunidade':'oportunidades');$('dmCrmHot').textContent=money(hot.reduce((a,x)=>a+(+x.value||0),0));if($('dmCrmHotCount'))$('dmCrmHotCount').textContent=hot.length+' '+(hot.length===1?'oportunidade':'oportunidades');renderPersonalTarget(u);note.textContent=admin?'Visão global do CRM.':'Previsão das suas oportunidades.';
   }catch(e){note.textContent='Não foi possível obter a previsão: '+(e.message||e)}
  }
@@ -9657,7 +9665,9 @@ window.dmForceCurrentMonthKpi=burst;
    if(note)note.textContent='Referência: '+new Intl.DateTimeFormat('pt-PT',{month:'long',year:'numeric'}).format(now)+' · realizado até dia '+now.getDate()+' · Data do Documento';
    const ym=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
    grid.innerHTML=ids.map(id=>{const x=SELLERS[id],actual=rows.filter(r=>norm(r?.vendedor)===norm(x.name)).reduce((a,r)=>a+(Number(r?.valor_liquido)||0),0);
-    const ready=(window.dmReadyOpportunitiesUser===u?(window.dmReadyOpportunities||[]):[]).filter(o=>(o.owner_id===id||norm(o.owner_name)===norm(x.label))&&String(o.expected_close||'').slice(0,7)===ym).reduce((a,o)=>a+(Number(o.value)||0),0);
+    const normId=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/gi,'').toLowerCase();
+    const expectedMonth=v=>{const s=String(v||'').trim();if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,7);const m=s.match(/^(\d{1,2})[/.](\d{1,2})[/.](\d{4})$/);return m?m[3]+'-'+m[2].padStart(2,'0'):''};
+    const ready=(window.dmReadyOpportunitiesUser===u?(window.dmReadyOpportunities||[]):[]).filter(o=>(normId(o.owner_id)===normId(id)||norm(o.owner_name)===norm(x.label))&&expectedMonth(o.expected_close)===ym).reduce((a,o)=>a+(Number(o.value)||0),0);
     const bar=(label,value,target,color)=>{const pct=value/target*100;return '<div class="dm-target-head" style="margin-top:12px"><div>'+label+'</div><div class="dm-target-values">'+money(value)+' / '+money(target)+'</div></div><div class="dm-target-track" role="progressbar" aria-label="'+label+'" aria-valuemin="0" aria-valuemax="100" aria-valuenow="'+Math.min(100,Math.max(0,pct))+'"><div class="dm-target-fill" style="width:'+Math.min(100,Math.max(0,pct))+'%;background:'+color+'"></div></div><div class="dm-target-percent">'+pct.toFixed(1).replace('.',',')+'% da meta mensal</div>'};
     return '<div class="dm-target-card" data-seller-target="'+id+'"><div class="dm-target-name">'+x.label+'</div>'+bar('Vendas sem IVA',actual,12500,'#0657ff')+bar('CRM — Ganho para faturar',ready,32500,'#7c3aed')+bar('Total vendas + CRM',actual+ready,55000,'#00a651')+'<small>CRM: data prevista de faturação neste mês.</small></div>'}).join('');
    grid.querySelectorAll('[data-seller-target]').forEach(card=>card.onclick=()=>{const id=card.dataset.sellerTarget,x=SELLERS[id];if(!x)return;const rr=rows.filter(r=>norm(r?.vendedor)===norm(x.name));try{if(typeof showDetails==='function')showDetails('vendedor',x.name,'',rr)}catch(_){}});

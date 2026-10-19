@@ -10709,6 +10709,10 @@ body{min-height:100vh}
    }
    if(typeof html==='string'&&html.includes('<title>Portal DM · Gestão Comercial</title>')&&html.includes('function renderContactCenter()')){
     html=html.replace(
+     "base.active=sorted.some(x=>x.active!==false);",
+     "const crmStatus=sorted.find(x=>x.from_sales!==true&&typeof x.active==='boolean');base.active=crmStatus?crmStatus.active:sorted.some(x=>x.active!==false);"
+    );
+    html=html.replace(
      "return uniqueAnalysesIdentity(state.analyses)\n   .filter(a=>a.client?.active!==false)\n   .map(a=>{",
      "return uniqueAnalysesIdentity(state.analyses)\n   .map(a=>{"
     );
@@ -10723,6 +10727,10 @@ body{min-height:100vh}
     html=html.replace(
      "${esc(a.client.name||'Cliente')}</button><div style=\"margin-top:4px\">${isCommercialCustomer(a)?",
      "${esc(a.client.name||'Cliente')}</button>${a.client.active===false?'<div style=\"margin-top:4px\"><span class=\"badge red\">INATIVO</span></div>':''}<div style=\"margin-top:4px\">${isCommercialCustomer(a)?"
+    );
+    html=html.replace(
+     "${isCommercialCustomer(a)?'<span class=\"cc-client-badge\">CLIENTE</span>':'<span class=\"nonclient-badge\">NÃO CLIENTE</span>'}",
+     "${a.client.active===false?'<span class=\"badge red\">INATIVO</span>':isCommercialCustomer(a)?'<span class=\"cc-client-badge\">CLIENTE</span>':'<span class=\"nonclient-badge\">NÃO CLIENTE</span>'}"
     );
    }
    return descriptor.set.call(this,html);

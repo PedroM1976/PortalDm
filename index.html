@@ -497,6 +497,8 @@ body.dm-gestao-no-scroll{overflow:hidden}
 </style>
 
 <style id="dmV13CcenterCalendarFixStyles">
+body.dm-gestao-no-scroll #drawerBackdrop{z-index:100080!important}
+body.dm-gestao-no-scroll #detailDrawer{z-index:100090!important}
 body.dm-gestao-no-scroll #visitDrawerBackdrop{z-index:100080!important}
 body.dm-gestao-no-scroll #visitDrawer{z-index:100090!important}
 body.dm-gestao-no-scroll #visitDayModalBackdrop{z-index:100080!important}
@@ -2436,6 +2438,7 @@ h1{font-size:24px}
       });
     });
     c$('artigoPesquisa')?.addEventListener('input',render);
+    c$('tab-comercial')?.addEventListener('dm:shown',()=>requestAnimationFrame(render));
     c$('calendarAdd').onclick=addCalendarEvent;
     c$('calendarPrev').onclick=()=>{calendarState.month=new Date(calendarState.month.getFullYear(),calendarState.month.getMonth()-1,1);renderCalendar()};
     c$('calendarNext').onclick=()=>{calendarState.month=new Date(calendarState.month.getFullYear(),calendarState.month.getMonth()+1,1);renderCalendar()};
@@ -2458,7 +2461,7 @@ h1{font-size:24px}
     loadCalendar();
     const original=window.update;
     if(typeof original==='function'&&!original.__commercialResearch){
-      const wrapped=function(){const out=original.apply(this,arguments);const panel=m$('tab-gestao');if(panel?.classList.contains('active'))setTimeout(render,0);return out};
+      const wrapped=function(){const out=original.apply(this,arguments);const panel=m$('tab-comercial');if(panel?.classList.contains('active'))setTimeout(render,0);return out};
       wrapped.__commercialResearch=true;window.update=wrapped;
     }
     render();

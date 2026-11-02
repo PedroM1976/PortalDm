@@ -10763,5 +10763,72 @@ body{min-height:100vh}
  };
 })();
 </script>
+<!-- DM 2026-11-02: acrescenta Última visita à grelha CCenter com a mesma lógica da aba Clientes. -->
+<script id="dmCcenterUltimaVisita20261102">
+(function(){
+ 'use strict';
+ const frame=document.getElementById('dmGestaoComercialFrame');
+ if(!frame)return;
+
+ function install(){
+  let doc,win;
+  try{doc=frame.contentDocument;win=frame.contentWindow}catch(_){return}
+  const body=doc?.getElementById('ccBody');
+  if(!body||typeof win.ccRows!=='function'||typeof win.lastClientVisit!=='function')return false;
+
+  const table=body.closest('table'),headRow=table?.tHead?.rows?.[0];
+  if(headRow&&!headRow.querySelector('.dm-cc-last-visit-head')){
+   const purchaseHead=[...headRow.cells].find(cell=>cell.textContent.trim()==='Última compra');
+   if(purchaseHead){
+    const th=doc.createElement('th');
+    th.className='dm-cc-last-visit-head';
+    th.textContent='Última visita';
+    purchaseHead.after(th);
+   }
+  }
+
+  let queued=false;
+  function paint(){
+   queued=false;
+   let analyses=[];
+   try{analyses=win.ccRows().map(row=>row.a)}catch(_){return}
+   const byId=new Map(analyses.map(a=>[String(a?.id??''),a]));
+   [...body.rows].forEach(row=>{
+    if(row.querySelector('.dm-cc-last-visit-cell'))return;
+    const purchaseCell=row.cells[4];
+    if(!purchaseCell)return;
+    const id=row.querySelector('[data-view]')?.getAttribute('data-view')||'';
+    const analysis=byId.get(String(id));
+    let html='<span class="muted">Sem visitas</span>';
+    if(analysis){
+     const visit=win.lastClientVisit(analysis);
+     if(visit){
+      const date=String(visit.data_visita||'').slice(0,10);
+      const days=date?win.daysSince(date):null;
+      const user=visit.utilizador_nome||visit.utilizador||'';
+      const detail=(days===0?'hoje':days===null?'':days+' dias')+(user?' · '+win.esc(user):'');
+      html=win.fmtDate(date)+(detail?'<div class="muted" style="font-size:10px">'+detail+'</div>':'');
+     }
+    }
+    const td=doc.createElement('td');
+    td.className='dm-cc-last-visit-cell';
+    td.innerHTML=html;
+    purchaseCell.after(td);
+   });
+  }
+  function queuePaint(){if(queued)return;queued=true;win.requestAnimationFrame(paint)}
+  queuePaint();
+  new win.MutationObserver(queuePaint).observe(body,{childList:true});
+  return true;
+ }
+
+ function waitForTable(attempt=0){
+  if(install()||attempt>=120)return;
+  setTimeout(()=>waitForTable(attempt+1),100);
+ }
+ frame.addEventListener('load',()=>waitForTable(),{passive:true});
+ if(frame.contentDocument?.readyState==='complete')waitForTable();
+})();
+</script>
 </body>
 </html>

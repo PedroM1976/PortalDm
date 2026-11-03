@@ -10830,5 +10830,68 @@ body{min-height:100vh}
  if(frame.contentDocument?.readyState==='complete')waitForTable();
 })();
 </script>
+<!-- DM 2026-11-03: painel privado de utilização, visível apenas ao perfil Assistência. -->
+<style id="dmUsageAnalyticsStyles">
+#dmUsageButton{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);color:#fff}
+#dmUsageButton:hover{background:rgba(255,255,255,.22)}
+#dmUsageButton.role-hidden{display:none!important}
+#dmUsageOverlay{position:fixed;inset:0;z-index:2147483400;background:rgba(8,26,58,.72);display:none;align-items:center;justify-content:center;padding:18px;backdrop-filter:blur(5px)}
+#dmUsageOverlay.open{display:flex}
+.dm-usage-shell{width:min(1180px,98vw);max-height:94vh;overflow:auto;background:#f4f7fb;border-radius:22px;box-shadow:0 32px 90px rgba(0,0,0,.35);color:#132238}
+.dm-usage-head{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:19px 22px;background:linear-gradient(135deg,#081a3a,#0657ff);color:#fff;border-radius:22px 22px 0 0}
+.dm-usage-head h2{margin:0;font-size:22px}.dm-usage-head p{margin:4px 0 0;font-size:12px;opacity:.8}.dm-usage-close{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.28);color:#fff}
+.dm-usage-body{padding:20px}.dm-usage-note{padding:12px 14px;border:1px solid #cfe2ff;border-left:4px solid #0657ff;background:#eef5ff;border-radius:10px;color:#294c75;font-size:12px;margin-bottom:16px}
+.dm-usage-kpis{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:12px;margin-bottom:16px}.dm-usage-kpi{background:#fff;border:1px solid #dde6f0;border-radius:15px;padding:16px;box-shadow:0 8px 20px rgba(15,23,42,.06)}.dm-usage-kpi span{display:block;color:#64748b;font-size:11px;font-weight:900;text-transform:uppercase}.dm-usage-kpi strong{display:block;margin-top:7px;font-size:27px;color:#081a3a}
+.dm-usage-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.dm-usage-panel{background:#fff;border:1px solid #dde6f0;border-radius:15px;padding:17px;min-width:0}.dm-usage-panel.wide{grid-column:1/-1}.dm-usage-panel h3{margin:0 0 13px;font-size:16px;color:#081a3a}
+.dm-usage-bars{display:grid;gap:10px}.dm-usage-bar{display:grid;grid-template-columns:minmax(120px,190px) 1fr 42px;gap:9px;align-items:center;font-size:12px}.dm-usage-bar-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dm-usage-track{height:9px;background:#edf2f7;border-radius:99px;overflow:hidden}.dm-usage-fill{height:100%;background:linear-gradient(90deg,#0657ff,#4ea2ff);border-radius:99px;min-width:3px}.dm-usage-count{text-align:right;font-weight:900}
+.dm-usage-toolbar{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}.dm-usage-toolbar select{padding:9px 11px;border:1px solid #d5dfeb;border-radius:9px;background:#fff}.dm-usage-actions{display:flex;gap:8px;flex-wrap:wrap}.dm-usage-actions button{padding:9px 12px}.dm-usage-danger{background:#fff;color:#b42318;border:1px solid #f1b7b2}
+.dm-usage-table-wrap{overflow:auto;border:1px solid #e1e8f0;border-radius:11px}.dm-usage-table{width:100%;border-collapse:collapse;font-size:12px}.dm-usage-table th,.dm-usage-table td{text-align:left;padding:10px 11px;border-bottom:1px solid #edf1f5;white-space:nowrap}.dm-usage-table th{background:#f7f9fc;color:#60758a;font-size:10px;text-transform:uppercase;letter-spacing:.04em}.dm-usage-table tr:last-child td{border-bottom:0}.dm-usage-empty{text-align:center;color:#7b8da1;padding:26px!important}.dm-usage-badge{display:inline-block;padding:4px 7px;border-radius:99px;background:#eaf2ff;color:#0753b9;font-weight:800}.dm-usage-local{color:#64748b;font-size:11px;margin-top:12px}
+@media(max-width:800px){.dm-usage-kpis{grid-template-columns:1fr 1fr}.dm-usage-grid{grid-template-columns:1fr}.dm-usage-panel.wide{grid-column:auto}.dm-usage-bar{grid-template-columns:110px 1fr 35px}}
+@media(max-width:480px){.dm-usage-kpis{grid-template-columns:1fr}.dm-usage-body{padding:12px}.dm-usage-head{padding:15px}.dm-usage-head h2{font-size:18px}}
+</style>
+<div id="dmUsageOverlay" aria-hidden="true">
+ <section class="dm-usage-shell" role="dialog" aria-modal="true" aria-labelledby="dmUsageTitle">
+  <header class="dm-usage-head"><div><h2 id="dmUsageTitle">Utilização do Portal DM</h2><p>Painel privado do perfil Assistência</p></div><button id="dmUsageClose" class="dm-usage-close" type="button">Fechar</button></header>
+  <div class="dm-usage-body">
+   <div class="dm-usage-note"><strong>Privacidade:</strong> este módulo regista apenas o perfil, o tipo de ação, a área técnica e a data. Não guarda palavras-passe, pesquisas, nomes de clientes nem conteúdos preenchidos nos formulários.</div>
+   <div class="dm-usage-toolbar"><label>Período <select id="dmUsagePeriod"><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option><option value="0">Todo o histórico local</option></select></label><div class="dm-usage-actions"><button id="dmUsageExport" type="button">Exportar CSV</button><button id="dmUsageClear" class="dm-usage-danger" type="button">Limpar histórico</button></div></div>
+   <div class="dm-usage-kpis"><div class="dm-usage-kpi"><span>Ações registadas</span><strong id="dmUsageTotal">0</strong></div><div class="dm-usage-kpi"><span>Hoje</span><strong id="dmUsageToday">0</strong></div><div class="dm-usage-kpi"><span>Perfis ativos</span><strong id="dmUsageUsers">0</strong></div><div class="dm-usage-kpi"><span>Áreas consultadas</span><strong id="dmUsageAreas">0</strong></div></div>
+   <div class="dm-usage-grid">
+    <article class="dm-usage-panel"><h3>Ações mais frequentes</h3><div id="dmUsageEventBars" class="dm-usage-bars"></div></article>
+    <article class="dm-usage-panel"><h3>Utilização por perfil</h3><div id="dmUsageUserBars" class="dm-usage-bars"></div></article>
+    <article class="dm-usage-panel wide"><h3>Atividade recente</h3><div class="dm-usage-table-wrap"><table class="dm-usage-table"><thead><tr><th>Data e hora</th><th>Perfil</th><th>Ação</th><th>Área técnica</th></tr></thead><tbody id="dmUsageHistory"></tbody></table></div><div class="dm-usage-local">Os registos desta primeira versão ficam apenas neste navegador. Para reunir a utilização de vários computadores será necessária uma tabela central na base de dados.</div></article>
+   </div>
+  </div>
+ </section>
+</div>
+<script id="dmUsageAnalyticsScript">
+(function(){
+ 'use strict';
+ const STORE='dmPortalUsageEventsV1',MAX=5000;
+ const labels={session_started:'Entrada no portal',session_ended:'Saída do portal',tab_opened:'Área consultada',button_clicked:'Ação executada',form_submitted:'Formulário enviado'};
+ const users={administrador:'Administrador',assistencia:'Assistência',comercial:'Domingos Lopes',jose_morgado:'José Morgado',rui_ferreira:'Rui Ferreira',joao_rebelo:'João Rebelo',sandro_loureiro:'Sandro Loureiro',ccenter:'CCenter',clara_morgado:'Clara Morgado',mario_leal:'Mario Leal'};
+ const tabLabels={'tab-visao':'Visão geral','tab-crescimento':'Crescimento','tab-clientes':'Clientes','tab-artigos':'Artigos','tab-catalogo':'Catálogo','tab-comercial':'Comercial','tab-geografia':'Geografia','tab-produto':'Produto','tab-drilldown':'Detalhe','tab-gestao':'Gestão','tab-admin-pref':'Assistência'};
+ const $=id=>document.getElementById(id),current=()=>sessionStorage.getItem('dmCurrentUser')||window.dmCurrentUser||'';
+ let sessionId='';try{sessionId=sessionStorage.getItem('dmUsageSessionId')||'';if(!sessionId){sessionId=crypto.randomUUID?.()||String(Date.now())+'-'+Math.random().toString(36).slice(2);sessionStorage.setItem('dmUsageSessionId',sessionId)}}catch(_){sessionId=String(Date.now())}
+ function read(){try{const a=JSON.parse(localStorage.getItem(STORE)||'[]');return Array.isArray(a)?a:[]}catch(_){return []}}
+ function write(a){try{localStorage.setItem(STORE,JSON.stringify(a.slice(0,MAX)))}catch(e){console.warn('Histórico de utilização indisponível:',e)}}
+ function safe(v){return String(v||'').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,80)}
+ function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+ function track(event,context){const user=current();if(!user)return;const rows=read();rows.unshift({at:new Date().toISOString(),event:safe(event),context:safe(context),user:safe(user),session:sessionId});write(rows);if(user==='assistencia'&&$('dmUsageOverlay')?.classList.contains('open'))render()}
+ window.dmUsageTrack=track;
+ function filtered(){const days=Number($('dmUsagePeriod')?.value||7),rows=read();if(!days)return rows;const since=Date.now()-days*86400000;return rows.filter(x=>new Date(x.at).getTime()>=since)}
+ function group(rows,key){const m=new Map();rows.forEach(x=>{const k=x[key]||'outro';m.set(k,(m.get(k)||0)+1)});return [...m].sort((a,b)=>b[1]-a[1])}
+ function bars(target,items,labeler){const root=$(target);if(!root)return;const max=Math.max(1,...items.map(x=>x[1]));root.innerHTML=items.length?items.slice(0,8).map(([key,count])=>`<div class="dm-usage-bar"><div class="dm-usage-bar-label" title="${esc(labeler(key))}">${esc(labeler(key))}</div><div class="dm-usage-track"><div class="dm-usage-fill" style="width:${count/max*100}%"></div></div><div class="dm-usage-count">${count}</div></div>`).join(''):'<div class="dm-usage-empty">Sem atividade neste período.</div>'}
+ function areaLabel(x){return tabLabels[x.context]||x.context||'Portal'}
+ function actionLabel(x){return labels[x.event]||x.event||'Ação'}
+ function render(){if(current()!=='assistencia')return close();const rows=filtered(),start=new Date();start.setHours(0,0,0,0);$('dmUsageTotal').textContent=rows.length.toLocaleString('pt-PT');$('dmUsageToday').textContent=rows.filter(x=>new Date(x.at)>=start).length.toLocaleString('pt-PT');$('dmUsageUsers').textContent=new Set(rows.map(x=>x.user)).size;$('dmUsageAreas').textContent=new Set(rows.filter(x=>x.context).map(x=>x.context)).size;bars('dmUsageEventBars',group(rows,'event'),k=>labels[k]||k);bars('dmUsageUserBars',group(rows,'user'),k=>users[k]||k);$('dmUsageHistory').innerHTML=rows.length?rows.slice(0,100).map(x=>`<tr><td>${new Intl.DateTimeFormat('pt-PT',{dateStyle:'short',timeStyle:'medium'}).format(new Date(x.at))}</td><td><span class="dm-usage-badge">${esc(users[x.user]||x.user)}</span></td><td>${esc(actionLabel(x))}</td><td>${esc(areaLabel(x))}</td></tr>`).join(''):'<tr><td colspan="4" class="dm-usage-empty">Sem atividade neste período.</td></tr>'}
+ function open(){if(current()!=='assistencia')return;$('dmUsageOverlay')?.classList.add('open');$('dmUsageOverlay')?.setAttribute('aria-hidden','false');render()}
+ function close(){$('dmUsageOverlay')?.classList.remove('open');$('dmUsageOverlay')?.setAttribute('aria-hidden','true')}
+ function ensureButton(){let b=$('dmUsageButton');if(!b){const host=document.querySelector('.auth-session')||document.querySelector('header .head');if(!host)return null;b=document.createElement('button');b.id='dmUsageButton';b.type='button';b.textContent='Utilização';b.title='Consultar utilização do Portal DM';b.addEventListener('click',open);const logout=$('logoutBtn');logout?host.insertBefore(b,logout):host.appendChild(b)}b.classList.toggle('role-hidden',current()!=='assistencia');return b}
+ function exportCsv(){const rows=filtered();if(!rows.length)return alert('Não existem registos neste período.');const data=[['data_hora','perfil','acao','area_tecnica'],...rows.map(x=>[x.at,users[x.user]||x.user,actionLabel(x),areaLabel(x)])];const csv='\ufeff'+data.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(';')).join('\r\n');const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})),a=document.createElement('a');a.href=url;a.download='utilizacao-portal-dm.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
+ function init(){ensureButton();$('dmUsageClose')?.addEventListener('click',close);$('dmUsageOverlay')?.addEventListener('click',e=>{if(e.target.id==='dmUsageOverlay')close()});$('dmUsagePeriod')?.addEventListener('change',render);$('dmUsageExport')?.addEventListener('click',exportCsv);$('dmUsageClear')?.addEventListener('click',()=>{if(current()==='assistencia'&&confirm('Eliminar o histórico de utilização guardado neste navegador?')){write([]);render()}});document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b||b.closest('#dmUsageOverlay'))return;const before=current();if(b.id==='authSubmit'){setTimeout(()=>{ensureButton();if(current())track('session_started','portal')},120);return}if(!before)return;if(b.id==='logoutBtn'){track('session_ended','portal');setTimeout(ensureButton,80);return}if(b.matches('.tab-btn[data-tab]')){track('tab_opened',b.dataset.tab);return}const id=safe(b.id||b.dataset.action||'');if(id&&id!=='dmUsageButton')track('button_clicked',id)},true);document.addEventListener('submit',e=>{if(current()&&e.target&&!e.target.closest('#dmUsageOverlay'))track('form_submitted',safe(e.target.id||'form'))},true);window.addEventListener('dm:permissions-updated',ensureButton);setInterval(ensureButton,2500);if(current())track('session_started','portal')}
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
+})();
+</script>
 </body>
 </html>

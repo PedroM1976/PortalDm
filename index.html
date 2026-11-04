@@ -6449,7 +6449,8 @@ window.dmOpenPeriodDetail=open;
         frame.srcdoc = '';
         const bytes = Uint8Array.from(atob(CRM_HTML_B64), c => c.charCodeAt(0));
         frame.onload = function(){ setTimeout(()=>window.dmAplicarAvatarCrm?.(),80); };
-        frame.srcdoc = new TextDecoder('utf-8').decode(bytes);
+        frame.srcdoc = new TextDecoder('utf-8').decode(bytes)
+          .replace("$('kReadyCard').onclick=openReadyOpportunities;", "$('kReadyCard').onclick=null;$('kReadyCard').classList.remove('clickable');$('kReadyCard').removeAttribute('title');");
         crmCarregado = true;
         crmUtilizadorCarregado = utilizadorAtual;
       }catch(err){
